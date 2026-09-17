@@ -90,12 +90,14 @@
   <section>
     <div id="targetName" class="muted">No single layer selected.</div>
     <div id="annotationList"></div>
-    <label for="path" style="margin-top:10px">XPath</label>
-    <textarea id="path" spellcheck="false" disabled></textarea>
-    <button id="pickXPath" style="margin-top:6px" disabled>Choose XML node</button>
-    <div id="repeaterContextNote" class="muted" hidden>Inside a repeater container: preview and picker use the first matched element as context.</div>
-    <label for="valuePreview" style="margin-top:10px">Value preview</label>
-    <output id="valuePreview" class="muted" aria-live="polite"></output>
+    <div id="xpathSection">
+      <label for="path" style="margin-top:10px">XPath</label>
+      <textarea id="path" spellcheck="false" disabled></textarea>
+      <button id="pickXPath" style="margin-top:6px" disabled>Choose XML node</button>
+      <div id="repeaterContextNote" class="muted" hidden>Inside a repeater container: preview and picker use the first matched element as context.</div>
+      <label for="valuePreview" style="margin-top:10px">Value preview</label>
+      <output id="valuePreview" class="muted" aria-live="polite"></output>
+    </div>
     <div id="textBindingActions" style="margin-top:10px">
       <button id="bind" class="primary" style="width:100%" disabled>Apply binding</button>
     </div>
@@ -211,16 +213,21 @@
   }
 
   function renderSelection() {
+    const isText = selection?.type === "text";
+    const isBoard = selection?.type === "board";
+    const isOtherNonText = !!selection && !isText && !isBoard;
     $("targetName").textContent = selection ? selection.name : "No single layer selected.";
     $("targetName").title = selection?.id || "";
+    $("targetName").hidden = !isOtherNonText;
     $("path").disabled = !selection;
     $("newSource").disabled = !fileId;
     $("sourceSection").hidden = !!selection;
-    const nonText = selection && selection.type !== "text";
-    $("textBindingActions").style.display = nonText ? "none" : "block";
-    $("annotationControls").hidden = !nonText;
-    $("repeaterControls").hidden = selection?.type !== "board";
-    $("repeaterContextNote").hidden = !(selection?.type === "text" && effectiveAncestorRepeater());
+    $("xpathSection").hidden = isBoard || !selection;
+    $("textBindingActions").style.display = isText ? "block" : "none";
+    $("annotationControls").hidden = !isOtherNonText;
+    $("annotationList").hidden = !isOtherNonText;
+    $("repeaterControls").hidden = !isBoard;
+    $("repeaterContextNote").hidden = !(isText && effectiveAncestorRepeater());
     renderAnnotations();
     renderRepeaterFields();
     renderSource();
