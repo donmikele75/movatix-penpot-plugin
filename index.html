@@ -64,6 +64,16 @@
     #editorDiagnostic { max-height: 92px; min-height: 18px; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; }
     #refreshAfterSave { width: auto; }
     .check-label { font-weight: normal; margin: 0; }
+    #xpathPicker[open] { display: flex; flex-direction: column; gap: 12px; }
+    #xpathPicker h2 { margin: 0; font-size: 16px; }
+    #preferIds { width: auto; }
+    #pickerTree { flex: 1; min-height: 0; overflow: auto; }
+    #pickerTree details { margin: 2px 0; }
+    #pickerTree summary { white-space: nowrap; }
+    .picker-children { margin-left: 14px; border-left: 1px solid rgba(127,127,127,.3); padding-left: 5px; }
+    .picker-node { display: inline-block; max-width: calc(100% - 22px); padding: 5px 6px; margin: 1px 0; text-align: left; vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-color: transparent; background: transparent; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .picker-node:hover, .picker-node:focus-visible { background: rgba(40,130,180,.15); border-color: #258a9b; }
+    #pickerTree > .picker-node, .picker-children > .picker-node { display: block; }
   </style>
 </head>
 <body>
@@ -74,6 +84,7 @@
     <div id="targetName" class="muted">No single text layer selected.</div>
     <label for="path" style="margin-top:10px">XPath</label>
     <textarea id="path" spellcheck="false" disabled></textarea>
+    <button id="pickXPath" style="margin-top:6px" disabled>Choose XML node</button>
     <label for="valuePreview" style="margin-top:10px">Value preview</label>
     <output id="valuePreview" class="muted" aria-live="polite"></output>
     <div class="row" style="margin-top:10px">
@@ -100,6 +111,13 @@
 
   <button id="refresh" class="primary" style="width:100%">Refresh all bindings</button>
   <div id="status" class="muted" role="status"></div>
+
+  <dialog id="xpathPicker" aria-labelledby="pickerTitle">
+    <h2 id="pickerTitle">Choose XML node</h2>
+    <label class="check-label"><input type="checkbox" id="preferIds" /> Prefer unique ID attributes</label>
+    <div id="pickerTree" aria-label="XML nodes"></div>
+    <button id="closePicker">Cancel</button>
+  </dialog>
 
   <dialog id="sourceEditor" aria-labelledby="editorTitle">
     <h2 id="editorTitle">XML source editor</h2>
@@ -151,6 +169,7 @@
     $("xmlPreview").value = source?.characters || "";
     $("sourceStorage").textContent = source ? "Stored in this document" : "";
     $("editSource").disabled = !source;
+    $("pickXPath").disabled = !source || !selection;
   }
 
   function renderSelection() {
@@ -192,6 +211,80 @@
       || doc.getElementsByTagNameNS("http://www.w3.org/1999/xhtml", "parsererror")[0];
     if (parserError) throw new Error(`Invalid XML: ${parserError.textContent?.trim() || "Parse error"}`);
     return doc;
+  }
+
+  function xpathLiteral(value) {
+    if (!value.includes("'")) return `'${value}'`;
+    if (!value.includes('"')) return `"${value}"`;
+    return `concat(${value.split("'").map((part) => `'${part}'`).join(', "\'", ')})`;
+  }
+
+  function nodeXPath(node, preferIds = false) {
+    if (node.nodeType === 9) return "";
+    const attribute = node.nodeType === 2;
+    const parent = attribute ? node.ownerElement : node.parentNode;
+    const name = node.namespaceURI
+      ? `*[local-name()=${xpathLiteral(node.localName)} and namespace-uri()=${xpathLiteral(node.namespaceURI)}]`
+      : node.nodeName;
+    if (attribute) return `${nodeXPath(parent, preferIds)}/@${name}`;
+    const siblings = Array.from(parent.children).filter((child) => child.localName === node.localName && child.namespaceURI === node.namespaceURI);
+    const id = node.getAttribute("id");
+    const predicate = preferIds && id && siblings.filter((child) => child.getAttribute("id") === id).length === 1
+      ? `[@id=${xpathLiteral(id)}]`
+      : siblings.length > 1 ? `[${siblings.indexOf(node) + 1}]` : "";
+    return `${nodeXPath(parent, preferIds)}/${name}${predicate}`;
+  }
+
+  function openXPathPicker() {
+    if (!source || !selection) return;
+    let doc;
+    try {
+      doc = parseXml(normalizeXmlMarkup(source.characters));
+    } catch (err) {
+      setStatus(err.message || String(err), "error");
+      return;
+    }
+    const attributes = (node) => Array.from(node.attributes).filter((attribute) => attribute.namespaceURI !== "http://www.w3.org/2000/xmlns/");
+    const shortened = (value) => {
+      const prefix = value.slice(0, 100).replace(/\s+/g, " ").trim();
+      return prefix + (value.length > 100 ? "..." : "");
+    };
+    const makeNode = (node, expanded = false) => {
+      const attribute = node.nodeType === 2;
+      const button = document.createElement("button");
+      button.className = "picker-node";
+      const value = attribute ? node.value : node.children.length ? "" : node.textContent;
+      button.textContent = `${attribute ? "@" : ""}${node.nodeName}${value ? ` = ${shortened(value)}` : ""}`;
+      button.title = `Select ${node.nodeName}`;
+      button.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        $("path").value = nodeXPath(node, $("preferIds").checked);
+        renderPreview();
+        $("xpathPicker").close();
+        $("path").focus();
+      };
+      if (attribute || (!node.children.length && !attributes(node).length)) return button;
+      const branch = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.append(button);
+      const children = document.createElement("div");
+      children.className = "picker-children";
+      let loaded = false;
+      const populate = () => {
+        if (loaded || !branch.open) return;
+        loaded = true;
+        for (const child of [...attributes(node), ...node.children]) children.append(makeNode(child));
+      };
+      branch.append(summary, children);
+      branch.ontoggle = populate;
+      branch.open = expanded;
+      populate();
+      return branch;
+    };
+    $("pickerTree").replaceChildren(makeNode(doc.documentElement, true));
+    $("xpathPicker").showModal();
+    send({ type: "editor-size", expanded: true });
   }
 
   function htmlToText(value) {
@@ -388,6 +481,19 @@
   };
 
   $("sourceSelect").onchange = () => send({ type: "select-source", sourceId: $("sourceSelect").value, fileId });
+  $("pickXPath").onclick = openXPathPicker;
+  $("closePicker").onclick = () => $("xpathPicker").close();
+  $("xpathPicker").onkeydown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      $("xpathPicker").close();
+    }
+  };
+  $("xpathPicker").onclose = () => {
+    if ($("xpathPicker").open) return;
+    $("pickerTree").replaceChildren();
+    send({ type: "editor-size", expanded: false });
+  };
   $("reloadSource").onclick = () => send({ type: "get-selection" });
   $("path").oninput = renderPreview;
   $("bind").onclick = () => {
@@ -412,6 +518,7 @@
     if (!msg || typeof msg !== "object") return;
 
     if (msg.type === "selection") {
+      if ($("xpathPicker").open) $("xpathPicker").close();
       pageId = msg.pageId;
       fileId = msg.fileId;
       if (selection?.id !== msg.shape?.id || selection?.path !== msg.shape?.path) {

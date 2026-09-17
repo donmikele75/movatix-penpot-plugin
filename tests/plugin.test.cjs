@@ -104,6 +104,73 @@ test("HTML DOM extraction preserves line breaks and ignores executable content",
   assert.equal(context.htmlToText(""), "");
 });
 
+test("XPath picker generates positions, unique IDs, attributes and namespace-safe names", () => {
+  const context = {
+    document: { getElementById: () => ({}) },
+    window: { addEventListener: () => {} },
+    parent: { postMessage: () => {} },
+  };
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  vm.runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/i)[1], context);
+  const doc = { nodeType: 9, children: [] };
+  const element = (parent, name, id = null, namespaceURI = null) => {
+    const node = { nodeType: 1, nodeName: name, localName: name, namespaceURI, parentNode: parent, children: [], getAttribute: () => id };
+    parent.children.push(node);
+    return node;
+  };
+  const root = element(doc, "data");
+  const first = element(root, "item", "duplicate");
+  element(root, "other");
+  const second = element(root, "item", "duplicate");
+  const unique = element(root, "item", "unique");
+  const description = element(second, "description");
+  assert.equal(context.nodeXPath(root), "/data");
+  assert.equal(context.nodeXPath(first), "/data/item[1]");
+  assert.equal(context.nodeXPath(second, true), "/data/item[2]");
+  assert.equal(context.nodeXPath(description), "/data/item[2]/description");
+  assert.equal(context.nodeXPath(unique, true), "/data/item[@id='unique']");
+  assert.equal(context.nodeXPath({ nodeType: 2, nodeName: "id", namespaceURI: null, ownerElement: unique }, true), "/data/item[@id='unique']/@id");
+  const namespaced = element(root, "item", null, "urn:test");
+  assert.equal(context.nodeXPath(namespaced), "/data/*[local-name()='item' and namespace-uri()='urn:test']");
+  assert.equal(context.nodeXPath({ nodeType: 2, localName: "code", namespaceURI: "urn:attr", ownerElement: namespaced }), "/data/*[local-name()='item' and namespace-uri()='urn:test']/@*[local-name()='code' and namespace-uri()='urn:attr']");
+  assert.equal(context.xpathLiteral("plain"), "'plain'");
+  assert.equal(context.xpathLiteral("it's"), '\"it\'s\"');
+  assert.equal(context.xpathLiteral('a\'"b'), `concat('a', "'", '"b')`);
+});
+
+test("XPath picker preserves a reopened tree and handles Escape without changing the path", () => {
+  const elements = new Map();
+  const messages = [];
+  const getElement = (id) => {
+    if (!elements.has(id)) elements.set(id, {});
+    return elements.get(id);
+  };
+  const context = {
+    document: { getElementById: getElement },
+    window: { addEventListener: () => {} },
+    parent: { postMessage: (message) => messages.push(message) },
+  };
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  vm.runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/i)[1], context);
+  const dialog = getElement("xpathPicker");
+  let cleared = false;
+  let prevented = false;
+  getElement("pickerTree").replaceChildren = () => { cleared = true; };
+  getElement("path").value = "/data/item[2]";
+  dialog.open = true;
+  dialog.onclose();
+  assert.equal(cleared, false);
+  dialog.close = () => { dialog.open = false; };
+  dialog.onkeydown({ key: "Escape", preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(dialog.open, false);
+  assert.equal(getElement("path").value, "/data/item[2]");
+  dialog.onclose();
+  assert.equal(cleared, true);
+  assert.equal(messages.at(-1).type, "editor-size");
+  assert.equal(messages.at(-1).expanded, false);
+});
+
 function createHarness(options = {}) {
   function createShape(id, characters, data = {}) {
     return {

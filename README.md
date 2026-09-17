@@ -15,7 +15,7 @@ A Penpot plugin that binds text layers to named XML sources stored in the docume
 
 2. Use **Pretty print** to indent the XML if needed, then click **Save source**.
 3. Select a target text layer and choose a source from **Document XML source**.
-4. Enter `/product/name` (or `/product/@id`).
+4. Enter `/product/name` (or `/product/@id`), or click **Choose XML node** and select an element or attribute.
 5. Check the live value preview and click **Apply binding** to store the binding and update the text immediately.
 6. Edit the source through **Edit XML source**. Saving refreshes bindings on the current page by default; **Refresh all bindings** is also available separately.
 
@@ -24,6 +24,12 @@ Bindings are stored on each target shape as Penpot plugin data, so they remain i
 The inspector follows the selected text layer and shows its bound source, even when it differs from the default source. Choosing another source changes the preview and default for unbound layers; **Apply binding** commits the source change on the selected target. Unbound layers start with an empty XPath. Select exactly one text layer to edit a binding. **Remove binding** keeps its current text. **Reload** rereads the selection and source XML without discarding an unchanged layer's draft XPath.
 
 The inspector is a separate plugin window, not an extension of Penpot's native Inspect sidebar. Sources are available across all pages of the current document and persist with the document, including for collaborators. **Refresh all bindings** updates targets on the current page only. Source changes are reread on selection changes, Reload, or Refresh all bindings; there is no background synchronization after the plugin closes.
+
+## XPath picker
+
+**Choose XML node** opens an expandable view of the selected source. Expand a branch using its disclosure arrow and click an element or attribute name to copy its absolute XPath into the field and update the preview. Values are shortened, including large Base64 fields, and child branches are rendered only when expanded. Cancel or Escape leaves the current XPath unchanged. Selecting a node does not save a binding; use **Apply binding** afterwards.
+
+Repeated sibling elements use positional predicates such as `/data/item[2]/description`. Enable **Prefer unique ID attributes** to use `@id` when it uniquely identifies an element among siblings of the same expanded name; duplicate or empty IDs fall back to positions. Namespaced elements and attributes use `local-name()` and `namespace-uri()` so generated paths do not depend on prefix declarations. A selection or source update closes an open picker to avoid using stale XML. Generated paths remain manually editable.
 
 ## Supported XPath
 
