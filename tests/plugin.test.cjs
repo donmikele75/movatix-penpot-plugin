@@ -133,6 +133,8 @@ test("XPath picker generates positions, unique IDs, attributes and namespace-saf
   const namespaced = element(root, "item", null, "urn:test");
   assert.equal(context.nodeXPath(namespaced), "/data/*[local-name()='item' and namespace-uri()='urn:test']");
   assert.equal(context.nodeXPath({ nodeType: 2, localName: "code", namespaceURI: "urn:attr", ownerElement: namespaced }), "/data/*[local-name()='item' and namespace-uri()='urn:test']/@*[local-name()='code' and namespace-uri()='urn:attr']");
+  assert.equal(context.nodeSetXPath(second), "/data/item");
+  assert.equal(context.nodeSetXPath(namespaced), "/data/*[local-name()='item' and namespace-uri()='urn:test']");
   assert.equal(context.xpathLiteral("plain"), "'plain'");
   assert.equal(context.xpathLiteral("it's"), '\"it\'s\"');
   assert.equal(context.xpathLiteral('a\'"b'), `concat('a', "'", '"b')`);

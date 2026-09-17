@@ -110,9 +110,10 @@
     <div id="repeaterControls" hidden>
       <label for="repeaterPath" style="margin-top:10px">Repeater container: XPath (node-set)</label>
       <textarea id="repeaterPath" spellcheck="false"></textarea>
-      <div class="muted" style="margin-top:4px">Instances are generated automatically as you type.</div>
+      <button id="pickRepeaterNodes" style="margin-top:6px" disabled>Select nodes</button>
       <div id="repeaterFields" class="muted"></div>
       <div class="row" style="margin-top:8px">
+        <button id="applyRepeater" class="primary" disabled>Apply</button>
         <button id="removeRepeater" disabled>Remove repeater</button>
       </div>
     </div>
@@ -183,7 +184,6 @@
   let annotationsSnapshot = "";
   let sourceOptions = [];
   const repeaterDrafts = new Map();
-  let repeaterApplyTimer = null;
 
   const $ = (id) => document.getElementById(id);
   const send = (message) => parent.postMessage(message, "*");
@@ -207,6 +207,7 @@
     $("sourceStorage").textContent = source ? "Stored in this document" : "";
     $("editSource").disabled = !source;
     $("pickXPath").disabled = !source || !selection;
+    $("pickRepeaterNodes").disabled = !source || selection?.type !== "board";
   }
 
   function renderSelection() {
@@ -266,6 +267,7 @@
       ? `Bound fields in the template layers: ${fields.map((field) => `${field.name} (${field.path})`).join(", ")}`
       : "No bound text layers among this board's direct child layers yet. Bind their text layers first.";
     $("removeRepeater").disabled = !selection.repeater;
+    $("applyRepeater").disabled = !source || !$("repeaterPath").value.trim();
   }
 
   function renderAnnotations() {
@@ -285,11 +287,7 @@
       remove.textContent = "\u{1F5D1}";
       remove.title = "Remove binding";
       remove.setAttribute("aria-label", `Remove binding ${selection.path}`);
-      remove.onclick = () => {
-        const containerId = selection?.ancestorContainerId;
-        send({ type: "unbind", targetId: selection?.id });
-        if (containerId) send({ type: "refresh-all" });
-      };
+      remove.onclick = () => send({ type: "unbind", targetId: selection?.id });
       header.append(path, remove);
       const sourceName = document.createElement("p");
       sourceName.className = "muted annotation-source";
@@ -400,7 +398,15 @@
     return `${nodeXPath(parent, preferIds, root)}/${name}${predicate}`;
   }
 
-  function openXPathPicker() {
+  function nodeSetXPath(node, root = null) {
+    if (node.nodeType === 2) return nodeXPath(node, false, root);
+    const name = node.namespaceURI
+      ? `*[local-name()=${xpathLiteral(node.localName)} and namespace-uri()=${xpathLiteral(node.namespaceURI)}]`
+      : node.nodeName;
+    return `${nodeXPath(node.parentNode, false, root)}/${name}`;
+  }
+
+  function openXPathPicker(mode = "value") {
     if (!source || !selection) return;
     let doc;
     try {
@@ -410,7 +416,7 @@
       return;
     }
     let root = null;
-    const ancestorRepeater = selection.type === "text" ? effectiveAncestorRepeater() : null;
+    const ancestorRepeater = mode === "value" && selection.type === "text" ? effectiveAncestorRepeater() : null;
     if (ancestorRepeater) {
       try {
         root = doc.evaluate(ancestorRepeater.path, doc, doc.createNSResolver(doc.documentElement), XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
@@ -433,10 +439,18 @@
       button.onclick = (event) => {
         event.preventDefault();
         event.stopPropagation();
-        $("path").value = nodeXPath(node, $("preferIds").checked, root);
-        renderPreview();
-        $("xpathPicker").close();
-        $("path").focus();
+        if (mode === "nodeset") {
+          $("repeaterPath").value = nodeSetXPath(node, root);
+          if (selection?.type === "board") repeaterDrafts.set(selection.id, $("repeaterPath").value);
+          renderRepeaterFields();
+          $("xpathPicker").close();
+          $("repeaterPath").focus();
+        } else {
+          $("path").value = nodeXPath(node, $("preferIds").checked, root);
+          renderPreview();
+          $("xpathPicker").close();
+          $("path").focus();
+        }
       };
       if (attribute || (!node.children.length && !attributes(node).length)) return button;
       const branch = document.createElement("details");
@@ -680,7 +694,6 @@
   };
 
   $("sourceSelect").onchange = () => send({ type: "select-source", sourceId: $("sourceSelect").value, fileId });
-  $("pickXPath").onclick = openXPathPicker;
   $("closePicker").onclick = () => $("xpathPicker").close();
   $("xpathPicker").onkeydown = (event) => {
     if (event.key === "Escape") {
@@ -700,10 +713,11 @@
   $("path").oninput = renderPreview;
   $("annotationRemark").oninput = renderPreview;
   $("cancelAnnotation").onclick = resetAnnotationForm;
+  $("pickXPath").onclick = () => openXPathPicker("value");
+  $("pickRepeaterNodes").onclick = () => openXPathPicker("nodeset");
   $("repeaterPath").oninput = () => {
     if (selection?.type === "board") repeaterDrafts.set(selection.id, $("repeaterPath").value);
-    if (repeaterApplyTimer) clearTimeout(repeaterApplyTimer);
-    repeaterApplyTimer = setTimeout(tryApplyRepeater, 600);
+    $("applyRepeater").disabled = !source || !$("repeaterPath").value.trim();
   };
   function computeRepeaterInstances(xml, path, fields) {
     const { doc, nodes } = resolveNodeSet(xml, path);
@@ -720,10 +734,10 @@
     });
   }
 
-  function tryApplyRepeater() {
+  $("applyRepeater").onclick = () => {
     if (!selection || selection.type !== "board" || !source) return;
     const path = $("repeaterPath").value.trim();
-    if (!path) return;
+    if (!path) return setStatus("Repeater XPath is required.", "error");
     try {
       const fields = (selection.repeaterFields || []).filter((field) => field.path);
       const instances = computeRepeaterInstances(source.characters, path, fields);
@@ -731,9 +745,8 @@
     } catch (err) {
       setStatus(err.message || String(err), "error");
     }
-  }
+  };
   $("removeRepeater").onclick = () => {
-    if (repeaterApplyTimer) clearTimeout(repeaterApplyTimer);
     if (selection?.id) repeaterDrafts.delete(selection.id);
     send({ type: "remove-repeater", targetId: selection?.id, fileId, pageId });
   };
@@ -754,9 +767,7 @@
     const path = $("path").value.trim();
     try {
       const value = resolveValue(source.characters, path, selection?.type === "text" ? effectiveAncestorRepeater() : null);
-      const containerId = selection?.ancestorContainerId;
       send({ type: "bind", targetId: selection?.id, sourceId: source.id, xml: source.characters, path, value });
-      if (containerId) send({ type: "refresh-all" });
     } catch (err) {
       setStatus(err.message || String(err), "error");
     }
