@@ -1,0 +1,64 @@
+name: Validate and deploy plugin to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate plugin files
+        run: |
+          node --check plugin.js
+          node <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+          assert.equal(manifest.code, 'plugin.js');
+          assert.ok(manifest.name);
+          assert.ok(manifest.permissions.includes('content:read'));
+          assert.ok(manifest.permissions.includes('content:write'));
+          const html = fs.readFileSync('index.html', 'utf8');
+          const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
+          assert.ok(scripts.length > 0, 'Plugin UI script is missing');
+          for (const script of scripts) new Function(script[1]);
+          console.log('Manifest and JavaScript syntax checks passed.');
+          NODE
+      - name: Prepare static site
+        run: |
+          mkdir _site
+          cp manifest.json plugin.js index.html _site/
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: _site
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

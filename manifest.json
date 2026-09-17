@@ -1,0 +1,7 @@
+{
+  "name": "XML Data Binding",
+  "description": "Bind Penpot text layers to XML stored in another text layer.",
+  "version": 2,
+  "code": "plugin.js",
+  "permissions": ["content:read", "content:write"]
+}
