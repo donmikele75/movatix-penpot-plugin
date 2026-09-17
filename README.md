@@ -40,6 +40,10 @@ Node selections use the first match in document order, trimming surrounding whit
 
 Use standard XPath paths from the document root. Legacy root-relative shortcuts such as `name` for `<product><name>...</name></product>` must be changed to `/product/name`.
 
+## XML text editing
+
+Text copied from or edited in rich-text environments may contain invisible U+200B (zero-width space) characters. The inspector tolerates these immediately after `</` in closing tags and between `/` and `>` in self-closing tags. This normalization is applied only to the parser input; it does not modify the source layer or the raw Source XML preview. Text values, attributes, comments, processing instructions, and CDATA are preserved. Other malformed XML still produces an error with the browser's parser details.
+
 ## Install from GitHub Pages
 
 In Penpot's plugin manager, add this manifest URL:

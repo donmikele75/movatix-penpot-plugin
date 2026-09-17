@@ -4,6 +4,31 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
+test("XML normalization repairs tag boundaries without changing values or literal markup", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  const script = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i)[1];
+  const context = {
+    document: { getElementById: () => ({}) },
+    window: { addEventListener: () => {} },
+    parent: { postMessage: () => {} },
+  };
+  vm.runInNewContext(script, context);
+  const gap = "\u200b\u200b";
+  const content = `<name attr="/${gap}>">Text/${gap}value</${gap}name><empty /${gap}>`;
+  const expected = `<name attr="/${gap}>">Text/${gap}value</name><empty />`;
+  assert.equal(context.normalizeXmlMarkup(content), expected);
+  for (const literal of [
+    `<![CDATA[</${gap}name> /${gap}>]]>`,
+    `<!-- </${gap}name> /${gap}> -->`,
+    `<?example </${gap}name> ?>`,
+    `<name attr='/${gap}>'>unchanged</name>`,
+    "<data><name>Normal XML</name><empty /></data>",
+    "<data>Bad & value</wrong>",
+  ]) {
+    assert.equal(context.normalizeXmlMarkup(literal), literal);
+  }
+});
+
 function createHarness() {
   function createShape(id, characters, data = {}) {
     return {

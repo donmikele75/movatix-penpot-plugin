@@ -107,11 +107,18 @@
     }
   }
 
+  function normalizeXmlMarkup(xml) {
+    return xml.replace(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<(?:"[^"]*"|'[^']*'|[^'">])*>/g, (markup) => {
+      if (markup.startsWith("<!") || markup.startsWith("<?")) return markup;
+      return markup.replace(/^<\/\u200b+/, "</").replace(/\/\u200b+>$/, "/>");
+    });
+  }
+
   function resolveXml(xml, path) {
     if (!xml || !path) throw new Error("Missing XML or path");
-    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    const doc = new DOMParser().parseFromString(normalizeXmlMarkup(xml), "application/xml");
     const parserError = doc.querySelector("parsererror");
-    if (parserError) throw new Error("Invalid XML");
+    if (parserError) throw new Error(`Invalid XML: ${parserError.textContent?.trim() || "Parse error"}`);
 
     let result;
     try {
