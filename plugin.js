@@ -1,7 +1,7 @@
 const SOURCE_KEY = "xml-binding-source";
 const PATH_KEY = "xml-binding-path";
 
-penpot.ui.open("XPath Inspector", "index.html", {
+penpot.ui.open("XPath Inspector", `index.html?refresh=${Date.now()}`, {
   width: 360,
   height: 560,
 });
