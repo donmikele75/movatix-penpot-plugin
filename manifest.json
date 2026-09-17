@@ -1,6 +1,6 @@
 {
   "name": "XML Data Binding",
-  "description": "Bind Penpot text layers to XML stored in another text layer.",
+  "description": "Bind Penpot text layers to document XML sources with a highlighted XML editor.",
   "version": 2,
   "code": "plugin.js",
   "permissions": ["content:read", "content:write"]

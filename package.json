@@ -1,0 +1,13 @@
+{
+  "name": "movatix-penpot-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "build": "node -e \"const fs = require('node:fs'); fs.mkdirSync('vendor', { recursive: true }); for (const [source, target] of [['prismjs/components/prism-core.min.js', 'prism-core.js'], ['prismjs/components/prism-markup.min.js', 'prism-markup.js'], ['xml-formatter/dist/browser/xml-formatter.js', 'xml-formatter.js']]) fs.copyFileSync('node_modules/' + source, 'vendor/' + target); for (const name of ['prismjs', 'xml-formatter', 'xml-parser-xo']) fs.copyFileSync('node_modules/' + name + '/LICENSE', 'vendor/' + name + '-LICENSE.txt');\""
+  },
+  "dependencies": {
+    "prismjs": "1.30.0",
+    "xml-formatter": "3.7.0"
+  }
+}

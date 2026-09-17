@@ -1,9 +1,41 @@
 const SOURCE_KEY = "xml-binding-source";
 const PATH_KEY = "xml-binding-path";
 const XML_KEY = "xml-binding-xml";
+const SOURCES_KEY = "xml-binding-document-sources";
+const DEFAULT_SOURCE_KEY = "xml-binding-default-source";
 
-function getSourceXml(shape) {
-  return shape.getPluginData(XML_KEY) || shape.characters || "";
+function readSources() {
+  const raw = penpot.currentFile?.getPluginData(SOURCES_KEY);
+  if (!raw) return [];
+  const data = JSON.parse(raw);
+  if (data.version !== 1 || !Array.isArray(data.sources) || data.sources.some((source) =>
+    !source || typeof source.id !== "string" || typeof source.name !== "string" || typeof source.characters !== "string")) {
+    throw new Error("Unsupported XML source storage. Existing data was not changed.");
+  }
+  return data.sources;
+}
+
+function writeSources(sources) {
+  penpot.currentFile.setPluginData(SOURCES_KEY, JSON.stringify({ version: 1, sources }));
+}
+
+function migrateSources() {
+  if (!penpot.currentFile) return;
+  const sources = readSources();
+  const pages = penpot.currentFile.pages || [penpot.currentPage].filter(Boolean);
+  const ids = new Set([penpot.currentFile.getPluginData(DEFAULT_SOURCE_KEY)]);
+  for (const page of pages) {
+    for (const shape of page.findShapes({ type: "text" })) ids.add(shape.getPluginData(SOURCE_KEY));
+  }
+  let changed = false;
+  for (const id of ids) {
+    if (!id || sources.some((source) => source.id === id)) continue;
+    const shape = pages.map((page) => page.getShapeById(id)).find((shape) => shape?.type === "text");
+    if (!shape) continue;
+    sources.push({ id, name: shape.name, characters: shape.getPluginData(XML_KEY) || shape.characters || "" });
+    changed = true;
+  }
+  if (changed) writeSources(sources);
 }
 
 penpot.ui.open("XPath Inspector", `index.html?refresh=${Date.now()}`, {
@@ -17,15 +49,22 @@ function getSelectedText() {
   return shape && shape.type === "text" ? shape : null;
 }
 
-function sendSelection() {
+function sendSelection(preferredSourceId) {
+  try {
+    migrateSources();
+  } catch (error) {
+    penpot.ui.sendMessage({ type: "status", level: "error", text: error.message || String(error) });
+    return;
+  }
   const shape = getSelectedText();
-  const sourceId = shape?.getPluginData(SOURCE_KEY) || penpot.currentFile?.getPluginData("xml-binding-default-source") || "";
-  const source = getSourceShape(sourceId);
+  const sourceId = (typeof preferredSourceId === "string" && preferredSourceId) || shape?.getPluginData(SOURCE_KEY) || penpot.currentFile?.getPluginData(DEFAULT_SOURCE_KEY) || "";
+  const source = getSource(sourceId);
   penpot.ui.sendMessage({
     type: "selection",
     pageId: penpot.currentPage?.id,
     fileId: penpot.currentFile?.id,
-    source: source ? { id: source.id, name: source.name, characters: getSourceXml(source), storage: source.getPluginData(XML_KEY) ? "plugin" : "layer" } : null,
+    sources: readSources().map(({ id, name }) => ({ id, name })),
+    source: source ? { ...source, storage: "document" } : null,
     shape: shape
       ? {
           id: shape.id,
@@ -38,11 +77,8 @@ function sendSelection() {
   });
 }
 
-function getSourceShape(sourceId) {
-  const page = penpot.currentPage;
-  if (!page || !sourceId) return null;
-  const shape = page.getShapeById(sourceId);
-  return shape && shape.type === "text" ? shape : null;
+function getSource(sourceId) {
+  return readSources().find((source) => source.id === sourceId) || null;
 }
 
 function allTextShapes() {
@@ -57,13 +93,13 @@ function refreshAll() {
     const path = shape.getPluginData(PATH_KEY);
     if (!sourceId || !path) continue;
 
-    const source = getSourceShape(sourceId);
+    const source = getSource(sourceId);
     items.push({
       targetId: shape.id,
       targetName: shape.name,
       sourceId,
       path,
-      xml: source ? getSourceXml(source) : null,
+      xml: source?.characters ?? null,
     });
   }
 
@@ -75,7 +111,7 @@ penpot.on("pagechange", sendSelection);
 penpot.on("filechange", sendSelection);
 sendSelection();
 
-penpot.ui.onMessage((message) => {
+function handleMessage(message) {
   if (!message || typeof message !== "object") return;
 
   if (message.type === "get-selection") {
@@ -88,25 +124,25 @@ penpot.ui.onMessage((message) => {
     return;
   }
 
-  if (message.type === "mark-source") {
-    const shape = getSelectedText();
-    if (!shape) {
-      penpot.ui.sendMessage({ type: "status", level: "error", text: "Select a text layer first." });
-      return;
-    }
-    penpot.currentFile?.setPluginData("xml-binding-default-source", shape.id);
-    sendSelection();
+  if (message.type === "select-source") {
+    if (message.fileId !== penpot.currentFile?.id || !getSource(message.sourceId)) return;
+    penpot.currentFile.setPluginData(DEFAULT_SOURCE_KEY, message.sourceId);
+    sendSelection(message.sourceId);
     return;
   }
 
   if (message.type === "save-source") {
-    const source = getSourceShape(message.sourceId);
     const fail = (text) => penpot.ui.sendMessage({ type: "source-save-error", text });
-    if (!source || message.pageId !== penpot.currentPage?.id || message.fileId !== penpot.currentFile?.id) {
-      fail("The source page or file changed, or the source was deleted. Reopen the editor.");
+    if (!penpot.currentFile || message.fileId !== penpot.currentFile.id) {
+      fail("The source file changed. Reopen the editor.");
       return;
     }
-    if (getSourceXml(source) !== message.originalXml) {
+    const source = getSource(message.sourceId);
+    if (message.sourceId && !source) {
+      fail("XML source not found. Your draft has not been saved.");
+      return;
+    }
+    if (source && (source.characters !== message.originalXml || (typeof message.originalName === "string" && source.name !== message.originalName))) {
       fail("The source changed since the editor was opened. Your draft has not been saved.");
       return;
     }
@@ -115,9 +151,14 @@ penpot.ui.onMessage((message) => {
       return;
     }
     try {
-      source.setPluginData(XML_KEY, message.xml);
-      penpot.ui.sendMessage({ type: "source-saved", sourceId: source.id });
-      sendSelection();
+      const sources = readSources();
+      const id = source?.id || `xml-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const name = typeof message.name === "string" && message.name.trim() ? message.name.trim() : source?.name || "XML source";
+      const saved = { id, name, characters: message.xml };
+      writeSources(source ? sources.map((item) => item.id === id ? saved : item) : [...sources, saved]);
+      if (!source) penpot.currentFile.setPluginData(DEFAULT_SOURCE_KEY, id);
+      penpot.ui.sendMessage({ type: "source-saved", sourceId: id, originalSourceId: message.sourceId || "" });
+      sendSelection(id);
     } catch (error) {
       fail(error.message || String(error));
     }
@@ -126,17 +167,12 @@ penpot.ui.onMessage((message) => {
 
   if (message.type === "bind") {
     const target = getSelectedText();
-    const source = getSourceShape(message.sourceId);
+    const source = getSource(message.sourceId);
     if (!target || !source) {
       penpot.ui.sendMessage({ type: "status", level: "error", text: "Select a target text layer and a valid XML source." });
       return;
     }
-    if (target.id === source.id) {
-      penpot.ui.sendMessage({ type: "status", level: "error", text: "Source and target must be different layers." });
-      return;
-    }
-
-    if (target.id !== message.targetId || getSourceXml(source) !== message.xml) {
+    if (target.id !== message.targetId || source.characters !== message.xml) {
       penpot.ui.sendMessage({ type: "status", level: "error", text: "Selection or XML changed. Reload and apply again." });
       sendSelection();
       return;
@@ -188,5 +224,13 @@ penpot.ui.onMessage((message) => {
       errors,
     });
     sendSelection();
+  }
+}
+
+penpot.ui.onMessage((message) => {
+  try {
+    handleMessage(message);
+  } catch (error) {
+    penpot.ui.sendMessage({ type: message.type === "save-source" ? "source-save-error" : "status", level: "error", text: error.message || String(error) });
   }
 });

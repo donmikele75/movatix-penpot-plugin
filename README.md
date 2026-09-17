@@ -1,10 +1,10 @@
 # Penpot XPath Inspector
 
-A minimal Penpot plugin that binds text layers to XML attached to a source layer, with a dedicated plain-text XML editor.
+A Penpot plugin that binds text layers to named XML sources stored in the document's plugin data. No XML source layer is required.
 
 ## What it does
 
-1. Create a normal Penpot text layer as the source anchor, or use an existing XML layer. Example XML for the editor:
+1. Click **New XML source**, enter a name and paste XML or import a UTF-8 XML file. Example:
 
 ```xml
 <product id="p1">
@@ -13,17 +13,17 @@ A minimal Penpot plugin that binds text layers to XML attached to a source layer
 </product>
 ```
 
-2. Select that layer and click **Set selection as source**.
-3. Click **Edit XML source**, paste XML or import a UTF-8 XML file, then click **Save source**.
-4. Select another text layer and enter `/product/name` (or `/product/@id`).
+2. Use **Pretty print** to indent the XML if needed, then click **Save source**.
+3. Select a target text layer and choose a source from **Document XML source**.
+4. Enter `/product/name` (or `/product/@id`).
 5. Check the live value preview and click **Apply binding** to store the binding and update the text immediately.
 6. Edit the source through **Edit XML source**. Saving refreshes bindings on the current page by default; **Refresh all bindings** is also available separately.
 
 Bindings are stored on each target shape as Penpot plugin data, so they remain in the document.
 
-The inspector follows the selected text layer and shows its bound source, even when it differs from the default source. Unbound layers start with an empty XPath. Select exactly one text layer to edit a binding. **Remove binding** keeps its current text. **Reload** rereads the selection and source XML without discarding an unchanged layer's draft XPath.
+The inspector follows the selected text layer and shows its bound source, even when it differs from the default source. Choosing another source changes the preview and default for unbound layers; **Apply binding** commits the source change on the selected target. Unbound layers start with an empty XPath. Select exactly one text layer to edit a binding. **Remove binding** keeps its current text. **Reload** rereads the selection and source XML without discarding an unchanged layer's draft XPath.
 
-The inspector is a separate plugin window, not an extension of Penpot's native Inspect sidebar. Sources and refresh operations are limited to the current page. Source changes are reread on selection changes, Reload, or Refresh all bindings; there is no background synchronization after the plugin closes.
+The inspector is a separate plugin window, not an extension of Penpot's native Inspect sidebar. Sources are available across all pages of the current document and persist with the document, including for collaborators. **Refresh all bindings** updates targets on the current page only. Source changes are reread on selection changes, Reload, or Refresh all bindings; there is no background synchronization after the plugin closes.
 
 ## Supported XPath
 
@@ -42,11 +42,13 @@ Use standard XPath paths from the document root. Legacy root-relative shortcuts 
 
 ## XML text editing
 
-**Edit XML source** opens a larger plain-text editor with line/column position, a U+200B character count, UTF-8 file import and **Validate XML**. Invalid XML cannot be saved. Parser diagnostics include the browser's error location. **Clean tag separators** explicitly repairs the tag-boundary characters described below; it does not silently change text values.
+**Edit XML source** opens a larger plain-text editor with XML syntax highlighting, editable source name, line/column position, a U+200B character count, UTF-8 file import and **Validate XML**. Invalid XML cannot be saved. Parser diagnostics include the browser's error location. **Clean tag separators** explicitly repairs the tag-boundary characters described below; it does not silently change text values.
 
-The first successful save stores XML as plugin data (`xml-binding-xml`) on the existing source layer. The layer ID and existing bindings stay unchanged. From then on, preview, binding and refresh use this stored XML, not the layer's canvas text. The canvas text is left untouched and may therefore show old XML. Keep the source layer; deleting it breaks its bindings. Before the first save, existing sources continue reading their canvas text.
+**Pretty print** uses `xml-formatter` with two-space indentation, preserving mixed content and `xml:space="preserve"`. It validates before and after formatting and does not save automatically. Indentation introduces whitespace text nodes, which can affect whitespace-sensitive XPath expressions such as `text()` or `node()`. Syntax highlighting uses Prism and changes only the display. Both libraries are bundled locally; XML is not sent to an external service.
 
-An open editor stays attached to its original source when selection changes. Saving rejects a changed source snapshot or a different page/file and keeps the draft available. **Discard and close** discards unsaved edits; Escape does not discard a modified draft. Closing the entire plugin still loses unsaved edits.
+Sources are stored in versioned document plugin data (`xml-binding-document-sources`), separate from canvas layers. When the plugin loads, existing default and bound layer sources across the document's pages are migrated automatically, preferring their editor-managed XML over canvas text. Existing IDs remain as internal source keys, so bindings do not need rewriting. Source layers are never deleted or modified by migration and can be removed after successful migration. Already-missing legacy sources cannot be recovered; the inspector reports them as missing. Unsupported or corrupt stored data is not overwritten.
+
+An open editor stays attached to its original source when selection or page changes. Saving rejects a changed source snapshot/name or a different file and keeps the draft available. **Discard and close** discards unsaved edits; Escape does not discard a modified draft. Closing the entire plugin still loses unsaved edits.
 
 Text copied from or edited in rich-text environments may contain invisible U+200B (zero-width space) characters. The inspector tolerates these immediately after `</` in closing tags and between `/` and `>` in self-closing tags. This normalization is applied only to the parser input; it does not modify the source layer or the raw Source XML preview. Text values, attributes, comments, processing instructions, and CDATA are preserved. Other malformed XML still produces an error with the browser's parser details.
 
@@ -62,16 +64,18 @@ The plugin runs inside Penpot; opening the hosted HTML page directly is not a st
 
 ## CI and deployment
 
-The GitHub Actions workflow in `.github/workflows/pages.yml` validates the manifest and JavaScript syntax and runs the plugin regression tests on pushes and pull requests to `main`. Successful pushes to `main` automatically deploy `manifest.json`, `plugin.js`, and `index.html` to GitHub Pages. The workflow can also be started manually.
+The GitHub Actions workflow in `.github/workflows/pages.yml` installs locked npm dependencies, bundles the editor libraries, validates the manifest and JavaScript syntax, and runs the plugin regression tests on pushes and pull requests to `main`. Successful pushes to `main` deploy the plugin and generated `vendor/` assets to GitHub Pages. The workflow can also be started manually.
 
 Repository **Settings > Pages > Source** must be set to **GitHub Actions**. Deployment uses the built-in `GITHUB_TOKEN`; no additional secrets are needed.
 
 ## Install / test locally
 
-Run the Penpot API mock regression tests with Node.js 24:
+Install and bundle the local editor assets, then run tests with Node.js 24:
 
 ```bash
-node --test tests/*.test.cjs
+npm ci
+npm run build
+npm test
 ```
 
 These tests cover plugin state and mutations; native XPath and the UI require browser testing. They do not replace an integration test inside Penpot.
@@ -100,7 +104,6 @@ Whether localhost is reachable depends on where your Penpot instance runs. For h
 
 ## Next useful steps
 
-- multiple named XML source layers
 - repeated nodes / component generation
-- live refresh when the source text layer changes
+- live refresh when document XML sources change
 - binding attributes and text templates such as `{{/product/name}} — {{/product/price}}`

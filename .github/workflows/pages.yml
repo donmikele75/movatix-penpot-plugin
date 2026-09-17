@@ -23,6 +23,8 @@ jobs:
         with:
           node-version: 24
       - name: Validate plugin files
+        run: npm ci && npm run build
+      - name: Check manifest and syntax
         run: |
           node --check plugin.js
           node <<'NODE'
@@ -45,6 +47,7 @@ jobs:
         run: |
           mkdir _site
           cp manifest.json plugin.js index.html _site/
+          cp -r vendor _site/
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:

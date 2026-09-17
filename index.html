@@ -16,8 +16,8 @@
     summary { cursor: pointer; }
     button:disabled { opacity: .45; cursor: default; }
     label { display: block; margin-bottom: 5px; font-weight: 600; }
-    input, textarea, button { font: inherit; }
-    input, textarea { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); background: transparent; }
+    input, textarea, button, select { font: inherit; }
+    input, textarea, select { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); background: transparent; }
     textarea { min-height: 100px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
     #path { min-height: 64px; margin: 0; font-size: 12px; }
     button { border: 1px solid rgba(127,127,127,.45); border-radius: 6px; padding: 8px 10px; cursor: pointer; }
@@ -33,8 +33,32 @@
     dialog::backdrop { background: rgba(0,0,0,.45); }
     #sourceEditor[open] { display: flex; flex-direction: column; gap: 10px; }
     #sourceEditor h2 { margin: 0; font-size: 16px; }
-    #editorSourceName { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-height: 18px; }
-    #xmlEditor { flex: 1; min-height: 100px; resize: none; font-size: 13px; line-height: 1.5; tab-size: 2; white-space: pre; }
+    #xmlCodeSurface { position: relative; flex: 1; min-height: 100px; border: 1px solid rgba(127,127,127,.5); border-radius: 6px; overflow: hidden; }
+    #xmlCodeSurface:focus-within { outline: 2px solid #258a9b; outline-offset: 1px; }
+    #xmlEditor, #xmlHighlight { box-sizing: border-box; position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 12px; border: 0; border-radius: 0; font: 13px/20px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0; tab-size: 2; white-space: pre; font-variant-ligatures: none; }
+    #xmlEditor { resize: none; min-height: 0; outline: none; background: transparent; }
+    #xmlHighlight { overflow: hidden; pointer-events: none; }
+    #xmlCodeSurface.highlighted #xmlEditor { color: transparent; caret-color: #202124; }
+    #xmlCodeSurface.highlighted #xmlEditor::selection { background: rgba(40,130,180,.3); color: transparent; }
+    .token.tag, .token.keyword { color: #a52150; }
+    .token.attr-name { color: #795d00; }
+    .token.attr-value, .token.string { color: #147348; }
+    .token.comment, .token.prolog, .token.doctype { color: #65716d; }
+    .token.punctuation { color: #525e68; }
+    .token.entity, .token.cdata { color: #007888; }
+    @media (prefers-color-scheme: dark) {
+      #xmlCodeSurface.highlighted #xmlEditor { caret-color: #f5f5f5; }
+      .token.tag, .token.keyword { color: #ff8fab; }
+      .token.attr-name { color: #e4c477; }
+      .token.attr-value, .token.string { color: #88d6aa; }
+      .token.comment, .token.prolog, .token.doctype { color: #a1aaa6; }
+      .token.punctuation { color: #bcc6ce; }
+      .token.entity, .token.cdata { color: #7bd3df; }
+    }
+    @media (forced-colors: active) {
+      #xmlHighlight { display: none; }
+      #xmlCodeSurface.highlighted #xmlEditor { color: CanvasText; caret-color: CanvasText; }
+    }
     .editor-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     #xmlImport { min-width: 0; max-width: 100%; }
     #editorDiagnostic { max-height: 92px; min-height: 18px; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -59,11 +83,12 @@
   </section>
 
   <section>
-    <label>XML source layer name</label>
+    <label for="sourceSelect">Document XML source</label>
+    <select id="sourceSelect" disabled></select>
     <div id="sourceName" class="muted">No source selected.</div>
     <div id="sourceStorage" class="muted"></div>
     <div class="row" style="margin-top:8px">
-      <button id="markSource" disabled>Set selection as source</button>
+      <button id="newSource" disabled>New XML source</button>
       <button id="reloadSource">Reload</button>
     </div>
     <button id="editSource" class="primary" style="width:100%;margin-top:8px" disabled>Edit XML source</button>
@@ -78,14 +103,19 @@
 
   <dialog id="sourceEditor" aria-labelledby="editorTitle">
     <h2 id="editorTitle">XML source editor</h2>
-    <div id="editorSourceName" class="muted"></div>
+    <label for="editorSourceName">Source name</label>
+    <input id="editorSourceName" maxlength="120" />
     <label for="xmlImport">Import XML file</label>
     <input id="xmlImport" type="file" accept=".xml,text/xml,application/xml" />
     <div class="editor-tools">
       <button id="validateXml">Validate XML</button>
+      <button id="prettyPrint">Pretty print</button>
       <button id="cleanXml">Clean tag separators</button>
     </div>
-    <textarea id="xmlEditor" aria-label="XML source code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off"></textarea>
+    <div id="xmlCodeSurface">
+      <pre id="xmlHighlight" aria-hidden="true"></pre>
+      <textarea id="xmlEditor" aria-label="XML source code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off"></textarea>
+    </div>
     <div id="editorPosition" class="muted"></div>
     <div id="editorDiagnostic" role="status" aria-live="polite"></div>
     <label class="check-label"><input type="checkbox" id="refreshAfterSave" checked /> Refresh bindings after saving</label>
@@ -95,6 +125,9 @@
     </div>
   </dialog>
 
+<script src="vendor/prism-core.js"></script>
+<script src="vendor/prism-markup.js"></script>
+<script src="vendor/xml-formatter.js"></script>
 <script>
   let source = null;
   let selection = null;
@@ -102,6 +135,7 @@
   let fileId = null;
   let editorSession = null;
   let savingSource = false;
+  let highlightedXml = null;
 
   const $ = (id) => document.getElementById(id);
   const send = (message) => parent.postMessage(message, "*");
@@ -112,10 +146,10 @@
   }
 
   function renderSource() {
-    $("sourceName").textContent = source ? source.name : selection?.sourceId ? "Bound source not found on this page." : "No source selected.";
+    $("sourceName").textContent = source ? source.name : selection?.sourceId ? "Bound XML source not found." : "No source selected.";
     $("sourceName").title = source?.id || "";
     $("xmlPreview").value = source?.characters || "";
-    $("sourceStorage").textContent = source ? source.storage === "plugin" ? "Editor-managed XML" : "Canvas text" : "";
+    $("sourceStorage").textContent = source ? "Stored in this document" : "";
     $("editSource").disabled = !source;
   }
 
@@ -123,7 +157,7 @@
     $("targetName").textContent = selection ? selection.name : "No single text layer selected.";
     $("targetName").title = selection?.id || "";
     $("path").disabled = !selection;
-    $("markSource").disabled = !selection;
+    $("newSource").disabled = !fileId;
     $("unbind").disabled = !selection?.sourceId;
     renderSource();
     renderPreview();
@@ -134,7 +168,6 @@
     $("valuePreview").className = "muted";
     $("valuePreview").textContent = "";
     if (!selection || !source || !$("path").value.trim()) return;
-    if (selection.id === source.id) return;
     try {
       const value = resolveXml(source.characters, $("path").value.trim());
       $("valuePreview").textContent = value === "" ? "(empty value)" : value;
@@ -185,17 +218,49 @@
     $("editorDiagnostic").className = level;
   }
 
+  function prettyPrintXml(xml) {
+    parseXml(xml);
+    const formatted = require("xml-formatter")(xml, { indentation: "  ", collapseContent: true, lineSeparator: "\n", throwOnFailure: true });
+    parseXml(formatted);
+    return formatted;
+  }
+
+  function syncHighlightScroll() {
+    $("xmlHighlight").scrollTop = $("xmlEditor").scrollTop;
+    $("xmlHighlight").scrollLeft = $("xmlEditor").scrollLeft;
+  }
+
+  function updateHighlight() {
+    const xml = $("xmlEditor").value;
+    if (xml !== highlightedXml) {
+      if (typeof Prism !== "undefined" && Prism.languages.xml) {
+        $("xmlHighlight").innerHTML = Prism.highlight(xml + "\n", Prism.languages.xml, "xml");
+        $("xmlCodeSurface").classList.add("highlighted");
+      } else {
+        $("xmlCodeSurface").classList.remove("highlighted");
+        $("xmlHighlight").textContent = "";
+      }
+      highlightedXml = xml;
+    }
+    syncHighlightScroll();
+  }
+
+  function editorIsDirty() {
+    return editorSession && ($("xmlEditor").value !== editorSession.originalXml || $("editorSourceName").value !== editorSession.originalName);
+  }
+
   function updateEditorState() {
+    updateHighlight();
     const xml = $("xmlEditor").value;
     const beforeCursor = xml.slice(0, $("xmlEditor").selectionStart);
     const line = beforeCursor.split("\n").length;
     const column = beforeCursor.length - beforeCursor.lastIndexOf("\n");
     const invisibleCount = (xml.match(/\u200b/g) || []).length;
     $("editorPosition").textContent = `Line ${line}, column ${column} | ${xml.split("\n").length} lines | ${invisibleCount} U+200B`;
-    const dirty = editorSession && xml !== editorSession.originalXml;
+    const dirty = editorIsDirty();
     $("closeEditor").textContent = dirty ? "Discard and close" : "Close";
-    for (const id of ["xmlEditor", "xmlImport", "validateXml", "cleanXml", "closeEditor", "refreshAfterSave"]) $(id).disabled = savingSource;
-    $("saveSource").disabled = savingSource || !xml.trim();
+    for (const id of ["xmlEditor", "xmlImport", "validateXml", "prettyPrint", "cleanXml", "closeEditor", "refreshAfterSave", "editorSourceName"]) $(id).disabled = savingSource;
+    $("saveSource").disabled = savingSource || !xml.trim() || !$("editorSourceName").value.trim();
   }
 
   function validateEditor() {
@@ -209,19 +274,24 @@
     }
   }
 
-  $("editSource").onclick = () => {
-    if (!source) return;
-    editorSession = { sourceId: source.id, originalXml: source.characters, pageId, fileId };
-    $("editorSourceName").textContent = source.name;
-    $("xmlEditor").value = source.characters;
+  function openEditor(currentSource) {
+    if (!fileId) return;
+    editorSession = { sourceId: currentSource?.id || "", originalXml: currentSource?.characters || "", originalName: currentSource?.name || "", fileId };
+    $("editorSourceName").value = editorSession.originalName;
+    $("xmlEditor").value = editorSession.originalXml;
     $("xmlImport").value = "";
     savingSource = false;
     updateEditorState();
-    validateEditor();
+    if (currentSource) validateEditor();
+    else editorDiagnostic("");
     $("sourceEditor").showModal();
     send({ type: "editor-size", expanded: true });
     $("xmlEditor").focus();
-  };
+  }
+  $("editSource").onclick = () => { if (source) openEditor(source); };
+  $("newSource").onclick = () => openEditor(null);
+  $("editorSourceName").oninput = updateEditorState;
+  $("xmlEditor").onscroll = syncHighlightScroll;
   $("xmlEditor").oninput = () => {
     editorDiagnostic("Unsaved changes");
     updateEditorState();
@@ -229,6 +299,18 @@
   $("xmlEditor").onkeyup = updateEditorState;
   $("xmlEditor").onclick = updateEditorState;
   $("validateXml").onclick = validateEditor;
+  $("prettyPrint").onclick = () => {
+    try {
+      const formatted = prettyPrintXml($("xmlEditor").value);
+      $("xmlEditor").focus();
+      $("xmlEditor").select();
+      if (!document.execCommand("insertText", false, formatted)) $("xmlEditor").setRangeText(formatted, 0, $("xmlEditor").value.length, "start");
+      updateEditorState();
+      editorDiagnostic("XML formatted", "ok");
+    } catch (error) {
+      editorDiagnostic(error.message || String(error), "error");
+    }
+  };
   $("cleanXml").onclick = () => {
     const original = $("xmlEditor").value;
     $("xmlEditor").value = normalizeXmlMarkup(original);
@@ -261,13 +343,13 @@
     savingSource = true;
     updateEditorState();
     editorDiagnostic("Saving source...");
-    send({ type: "save-source", ...editorSession, xml: $("xmlEditor").value });
+    send({ type: "save-source", ...editorSession, name: $("editorSourceName").value.trim(), xml: $("xmlEditor").value });
   };
   $("closeEditor").onclick = () => {
     if (!savingSource) $("sourceEditor").close();
   };
   $("sourceEditor").oncancel = (event) => {
-    if (savingSource || (editorSession && $("xmlEditor").value !== editorSession.originalXml)) {
+    if (savingSource || editorIsDirty()) {
       event.preventDefault();
       if (!savingSource) editorDiagnostic("Unsaved changes", "error");
     }
@@ -277,7 +359,7 @@
     send({ type: "editor-size", expanded: false });
   };
 
-  $("markSource").onclick = () => send({ type: "mark-source" });
+  $("sourceSelect").onchange = () => send({ type: "select-source", sourceId: $("sourceSelect").value, fileId });
   $("reloadSource").onclick = () => send({ type: "get-selection" });
   $("path").oninput = renderPreview;
   $("bind").onclick = () => {
@@ -309,6 +391,13 @@
       }
       selection = msg.shape;
       source = msg.source;
+      $("sourceSelect").replaceChildren();
+      const placeholder = new Option("Select XML source", "");
+      placeholder.disabled = true;
+      $("sourceSelect").add(placeholder);
+      for (const item of msg.sources || []) $("sourceSelect").add(new Option(item.name, item.id));
+      $("sourceSelect").value = source?.id || "";
+      $("sourceSelect").disabled = !msg.sources?.length;
       renderSelection();
     }
 
@@ -320,7 +409,7 @@
       editorDiagnostic(msg.text, "error");
     }
 
-    if (msg.type === "source-saved" && editorSession?.sourceId === msg.sourceId) {
+    if (msg.type === "source-saved" && editorSession && editorSession.sourceId === msg.originalSourceId) {
       savingSource = false;
       $("sourceEditor").close();
       setStatus("XML source saved in plugin data.", "ok");
@@ -330,7 +419,7 @@
     if (msg.type === "refresh-data") {
       const results = (msg.items || []).map((item) => {
         if (item.xml == null) {
-          return { targetId: item.targetId, ok: false, error: "Source layer not found" };
+          return { targetId: item.targetId, ok: false, error: "XML source not found" };
         }
         try {
           return { targetId: item.targetId, ok: true, value: resolveXml(item.xml, item.path) };

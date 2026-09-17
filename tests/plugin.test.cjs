@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 test("XML normalization repairs tag boundaries without changing values or literal markup", () => {
   const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
-  const script = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i)[1];
+  const script = html.match(/<script>([\s\S]*?)<\/script>/i)[1];
   const context = {
     document: { getElementById: () => ({}) },
     window: { addEventListener: () => {} },
@@ -31,7 +31,7 @@ test("XML normalization repairs tag boundaries without changing values or litera
 
 test("XML validation recognizes Chromium and Firefox parser errors", () => {
   const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
-  const script = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i)[1];
+  const script = html.match(/<script>([\s\S]*?)<\/script>/i)[1];
   for (const namespace of ["http://www.w3.org/1999/xhtml", "http://www.mozilla.org/newlayout/xml/parsererror.xml", null]) {
     const parsed = {
       getElementsByTagNameNS: (requested) => requested === namespace ? [{ textContent: "line 1: invalid XML" }] : [],
@@ -49,7 +49,31 @@ test("XML validation recognizes Chromium and Firefox parser errors", () => {
   }
 });
 
-function createHarness() {
+test("pretty print preserves mixed content, significant spaces, CDATA and comments", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  const context = {
+    document: { getElementById: () => ({}) },
+    window: { addEventListener: () => {} },
+    parent: { postMessage: () => {} },
+    require,
+  };
+  vm.runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/i)[1], context);
+  context.parseXml = () => {};
+  for (const content of [
+    '<p>This is <b>bold</b> text.</p>',
+    '<p xml:space="preserve">  This is <b>bold</b>   text.\n </p>',
+    '<value>  padded  </value>',
+    '<value><![CDATA[a < b & c]]></value>',
+    '<!--note-->',
+  ]) {
+    assert.ok(context.prettyPrintXml(`<root>${content}</root>`).includes(content));
+  }
+  const formatted = context.prettyPrintXml('<root><item id="1"><name>Alpha</name></item></root>');
+  assert.equal(formatted, '<root>\n  <item id="1">\n    <name>Alpha</name>\n  </item>\n</root>');
+  assert.equal(context.prettyPrintXml(formatted), formatted);
+});
+
+function createHarness(options = {}) {
   function createShape(id, characters, data = {}) {
     return {
       id, name: id, type: "text", characters,
@@ -57,14 +81,14 @@ function createHarness() {
       setPluginData: (key, value) => { data[key] = value; },
     };
   }
-  const source = createShape("source", "<data><name>Alpha</name></data>");
+  const source = createShape("source", "<data><name>Alpha</name></data>", options.sourceData);
   const otherSource = createShape("other-source", "<data><name>Beta</name></data>");
   const target = createShape("target", "Original");
   const shapes = new Map([source, otherSource, target].map((shape) => [shape.id, shape]));
   const messages = [];
   const sizes = [];
   const listeners = {};
-  const fileData = { "xml-binding-default-source": source.id };
+  const fileData = { "xml-binding-default-source": source.id, ...options.fileData };
   let receive;
   const penpot = {
     selection: [target],
@@ -86,12 +110,15 @@ function createHarness() {
     },
     on: (event, callback) => { listeners[event] = callback; },
   };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../plugin.js"), "utf8"), { penpot });
+  penpot.currentFile.pages = [penpot.currentPage];
+  options.initialize?.({ penpot, target, source, otherSource, shapes });
+  const restart = () => vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../plugin.js"), "utf8"), { penpot });
+  restart();
   const bind = (overrides = {}) => receive({
     type: "bind", targetId: target.id, sourceId: source.id,
     xml: source.characters, path: "/data/name", value: "Alpha", ...overrides,
   });
-  return { source, otherSource, target, shapes, messages, sizes, listeners, penpot, bind, receive };
+  return { source, otherSource, target, shapes, messages, sizes, listeners, penpot, bind, fileData, restart, receive: (message) => receive(message) };
 }
 
 test("source editor expands and restores the plugin window", () => {
@@ -109,12 +136,15 @@ test("binding stores metadata and immediately applies the preview", () => {
   assert.equal(harness.target.getPluginData("xml-binding-path"), "/data/name");
 });
 
-test("inspector uses the bound source, not the default, and reports a missing source", () => {
+test("inspector migrates bound sources and keeps them after layer deletion", () => {
   const harness = createHarness();
   harness.target.setPluginData("xml-binding-source", harness.otherSource.id);
   harness.listeners.selectionchange();
   assert.equal(harness.messages.at(-1).source.id, harness.otherSource.id);
   harness.shapes.delete(harness.otherSource.id);
+  harness.listeners.selectionchange();
+  assert.equal(harness.messages.at(-1).source.characters, "<data><name>Beta</name></data>");
+  harness.target.setPluginData("xml-binding-source", "missing");
   harness.listeners.selectionchange();
   assert.equal(harness.messages.at(-1).source, null);
 });
@@ -134,7 +164,7 @@ test("binding rejects a changed source snapshot", () => {
   assert.equal(harness.target.getPluginData("xml-binding-path"), "");
 });
 
-test("binding rejects multiple selected layers and self-binding", () => {
+test("binding rejects multiple selected layers but allows the old source layer as target", () => {
   const harness = createHarness();
   harness.penpot.selection = [harness.target, harness.otherSource];
   harness.bind();
@@ -143,7 +173,7 @@ test("binding rejects multiple selected layers and self-binding", () => {
   assert.equal(harness.target.characters, "Original");
   harness.penpot.selection = [harness.source];
   harness.bind({ targetId: harness.source.id });
-  assert.equal(harness.source.getPluginData("xml-binding-path"), "");
+  assert.equal(harness.source.getPluginData("xml-binding-path"), "/data/name");
 });
 
 test("empty values are applied and unbinding preserves the rendered text", () => {
@@ -160,15 +190,16 @@ test("empty values are applied and unbinding preserves the rendered text", () =>
 test("refresh sends current XML and applies results while preserving failed targets", () => {
   const harness = createHarness();
   harness.bind();
-  harness.source.characters = "<data><name>Changed</name></data>";
+  const xml = "<data><name>Changed</name></data>";
+  harness.receive({ type: "save-source", sourceId: "source", fileId: "file", originalXml: harness.source.characters, xml });
   harness.receive({ type: "refresh-all" });
-  assert.equal(harness.messages.at(-1).items[0].xml, harness.source.characters);
+  assert.equal(harness.messages.at(-1).items[0].xml, xml);
   harness.receive({ type: "apply-values", results: [{ targetId: harness.target.id, ok: true, value: "Changed" }] });
   assert.equal(harness.target.characters, "Changed");
   harness.receive({ type: "apply-values", results: [{ targetId: harness.target.id, ok: false, error: "XPath has no matches" }] });
   assert.equal(harness.target.characters, "Changed");
   assert.equal(harness.messages.findLast((message) => message.type === "refresh-result").errors.length, 1);
-  assert.equal(harness.messages.at(-1).source.characters, harness.source.characters);
+  assert.equal(harness.messages.at(-1).source.characters, xml);
 });
 
 test("editor source is authoritative for selection, binding and refresh without rewriting canvas text", () => {
@@ -178,7 +209,7 @@ test("editor source is authoritative for selection, binding and refresh without 
   harness.receive({ type: "save-source", sourceId: "source", pageId: "page", fileId: "file", originalXml, xml });
   assert.equal(harness.source.characters, originalXml);
   assert.equal(harness.messages.at(-1).source.characters, xml);
-  assert.equal(harness.messages.at(-1).source.storage, "plugin");
+  assert.equal(harness.messages.at(-1).source.storage, "document");
   harness.source.characters = "<broken canvas text";
   harness.bind({ xml, value: "Edited" });
   assert.equal(harness.target.characters, "Edited");
@@ -187,10 +218,83 @@ test("editor source is authoritative for selection, binding and refresh without 
 });
 
 test("editor saves reject conflicts, context changes, deleted sources and empty XML", () => {
-  for (const overrides of [{ originalXml: "stale" }, { pageId: "other" }, { fileId: "other" }, { sourceId: "deleted" }, { xml: "" }]) {
+  for (const overrides of [{ originalXml: "stale" }, { fileId: "other" }, { sourceId: "deleted" }, { xml: "" }]) {
     const harness = createHarness();
     harness.receive({ type: "save-source", sourceId: "source", pageId: "page", fileId: "file", originalXml: harness.source.characters, xml: "<data/>", ...overrides });
     assert.equal(harness.messages.at(-1).type, "source-save-error");
     assert.equal(harness.source.getPluginData("xml-binding-xml"), "");
+  }
+});
+
+test("document sources work with no source layers and across page changes", () => {
+  const harness = createHarness({
+    fileData: { "xml-binding-default-source": "" },
+    initialize: ({ penpot, shapes }) => {
+      shapes.delete("source");
+      shapes.delete("other-source");
+      penpot.selection = [];
+    },
+  });
+  assert.equal(harness.messages.at(-1).source, null);
+  harness.receive({ type: "save-source", sourceId: "", fileId: "file", originalXml: "", name: "Orders", xml: "<orders/>" });
+  const saved = harness.messages.at(-1).source;
+  assert.equal(saved.name, "Orders");
+  assert.match(saved.id, /^xml-/);
+  harness.penpot.currentPage.id = "another-page";
+  harness.receive({ type: "save-source", sourceId: saved.id, fileId: "file", originalXml: saved.characters, xml: "<orders><name>New</name></orders>" });
+  harness.penpot.selection = [harness.target];
+  harness.bind({ sourceId: saved.id, xml: "<orders><name>New</name></orders>", path: "/orders/name", value: "New" });
+  assert.equal(harness.target.characters, "New");
+  assert.equal(harness.source.getPluginData("xml-binding-xml"), "");
+  harness.restart();
+  assert.equal(harness.messages.at(-1).source.id, saved.id);
+  assert.equal(JSON.parse(harness.fileData["xml-binding-document-sources"]).sources.length, 1);
+});
+
+test("migration covers all pages, prefers editor XML and survives reopening", () => {
+  const xml = "<data><name>Stored</name></data>";
+  const harness = createHarness({
+    sourceData: { "xml-binding-xml": xml },
+    initialize: ({ penpot, target, otherSource, shapes }) => {
+      target.setPluginData("xml-binding-source", otherSource.id);
+      target.setPluginData("xml-binding-path", "/data/name");
+      shapes.delete(target.id);
+      shapes.delete(otherSource.id);
+      penpot.currentFile.pages.push({
+        id: "second-page", findShapes: () => [target, otherSource],
+        getShapeById: (id) => [target, otherSource].find((shape) => shape.id === id),
+      });
+    },
+  });
+  const stored = JSON.parse(harness.fileData["xml-binding-document-sources"]).sources;
+  assert.equal(stored.find((source) => source.id === "source").characters, xml);
+  assert.equal(stored.find((source) => source.id === "other-source").characters, harness.otherSource.characters);
+  harness.penpot.currentFile.pages = [harness.penpot.currentPage];
+  harness.shapes.delete("source");
+  harness.restart();
+  assert.equal(harness.messages.at(-1).source.id, "other-source");
+  assert.equal(harness.target.getPluginData("xml-binding-path"), "/data/name");
+  assert.equal(harness.source.characters, "<data><name>Alpha</name></data>");
+});
+
+test("choosing a different document source allows explicit rebinding", () => {
+  const harness = createHarness();
+  harness.bind();
+  harness.receive({ type: "save-source", sourceId: "", fileId: "file", xml: "<data/>", name: "Other" });
+  const created = harness.messages.at(-1).source;
+  harness.receive({ type: "select-source", sourceId: created.id, fileId: "file" });
+  assert.equal(harness.messages.at(-1).source.id, created.id);
+  assert.equal(harness.target.getPluginData("xml-binding-source"), "source");
+  harness.bind({ sourceId: created.id, xml: created.characters, value: "" });
+  assert.equal(harness.target.getPluginData("xml-binding-source"), created.id);
+});
+
+test("corrupt or unsupported document storage is never overwritten", () => {
+  for (const raw of ["not JSON", '{"version":2,"sources":[]}', '{"version":1,"sources":[null]}']) {
+    const harness = createHarness({ fileData: { "xml-binding-document-sources": raw } });
+    assert.equal(harness.messages.at(-1).level, "error");
+    harness.receive({ type: "save-source", sourceId: "", fileId: "file", xml: "<data/>", name: "New" });
+    assert.equal(harness.messages.at(-1).type, "source-save-error");
+    assert.equal(harness.fileData["xml-binding-document-sources"], raw);
   }
 });
