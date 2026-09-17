@@ -10,6 +10,7 @@
     h1 { margin: 0 0 14px; font-size: 16px; }
     section { border-bottom: 1px solid rgba(127,127,127,.35); padding-bottom: 14px; margin-bottom: 14px; }
     #sourceName, #targetName, #status, #valuePreview { overflow-wrap: anywhere; }
+    #sourceName, #targetName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 18px; height: 18px; }
     #valuePreview { display: block; min-height: 40px; max-height: 100px; overflow: auto; white-space: pre-wrap; margin-top: 6px; }
     details { margin-top: 10px; }
     summary { cursor: pointer; }
@@ -34,7 +35,7 @@
   <h1>XPath Inspector</h1>
 
   <section>
-    <label>Text layer</label>
+    <label>Text layer name</label>
     <div id="targetName" class="muted">No single text layer selected.</div>
     <label for="path" style="margin-top:10px">XPath</label>
     <textarea id="path" spellcheck="false" disabled></textarea>
@@ -47,7 +48,7 @@
   </section>
 
   <section>
-    <label>XML source</label>
+    <label>XML source layer name</label>
     <div id="sourceName" class="muted">No source selected.</div>
     <div class="row" style="margin-top:8px">
       <button id="markSource" disabled>Set selection as source</button>
