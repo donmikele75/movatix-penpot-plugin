@@ -3,6 +3,7 @@ const PATH_KEY = "xml-binding-path";
 const XML_KEY = "xml-binding-xml";
 const SOURCES_KEY = "xml-binding-document-sources";
 const DEFAULT_SOURCE_KEY = "xml-binding-default-source";
+const ANNOTATIONS_KEY = "xml-binding-annotations";
 
 function readSources() {
   const raw = penpot.currentFile?.getPluginData(SOURCES_KEY);
@@ -44,20 +45,38 @@ penpot.ui.open("XPath Inspector", `index.html?refresh=${Date.now()}`, {
 });
 
 function getSelectedText() {
+  const shape = getSelectedShape();
+  return shape?.type === "text" ? shape : null;
+}
+
+function getSelectedShape() {
   if (penpot.selection?.length !== 1) return null;
-  const shape = penpot.selection?.[0];
-  return shape && shape.type === "text" ? shape : null;
+  return penpot.selection[0] || null;
+}
+
+function readAnnotations(shape) {
+  const raw = shape?.getPluginData(ANNOTATIONS_KEY) || "";
+  if (!raw) return [];
+  const data = JSON.parse(raw);
+  if (data.version !== 1 || !Array.isArray(data.entries) || data.entries.some((entry) =>
+    !entry || [entry.id, entry.sourceId, entry.path, entry.remark].some((value) => typeof value !== "string" || !value.trim())) ||
+    new Set(data.entries.map((entry) => entry.id)).size !== data.entries.length) {
+    throw new Error("Unsupported XPath annotations. Existing data was not changed.");
+  }
+  return data.entries;
 }
 
 function sendSelection(preferredSourceId) {
+  const shape = getSelectedShape();
+  let annotations;
   try {
     migrateSources();
+    annotations = shape?.type !== "text" ? readAnnotations(shape) : [];
   } catch (error) {
     penpot.ui.sendMessage({ type: "status", level: "error", text: error.message || String(error) });
     return;
   }
-  const shape = getSelectedText();
-  const sourceId = (typeof preferredSourceId === "string" && preferredSourceId) || shape?.getPluginData(SOURCE_KEY) || penpot.currentFile?.getPluginData(DEFAULT_SOURCE_KEY) || "";
+  const sourceId = (typeof preferredSourceId === "string" && preferredSourceId) || shape?.getPluginData(SOURCE_KEY) || annotations[0]?.sourceId || penpot.currentFile?.getPluginData(DEFAULT_SOURCE_KEY) || "";
   const source = getSource(sourceId);
   penpot.ui.sendMessage({
     type: "selection",
@@ -69,6 +88,9 @@ function sendSelection(preferredSourceId) {
       ? {
           id: shape.id,
           name: shape.name,
+          type: shape.type,
+          annotations,
+          annotationsRaw: shape.getPluginData(ANNOTATIONS_KEY) || "",
           characters: shape.characters ?? "",
           sourceId: shape.getPluginData(SOURCE_KEY) || "",
           path: shape.getPluginData(PATH_KEY) || "",
@@ -162,6 +184,50 @@ function handleMessage(message) {
     } catch (error) {
       fail(error.message || String(error));
     }
+    return;
+  }
+
+  if (message.type === "save-annotation" || message.type === "delete-annotation") {
+    const target = getSelectedShape();
+    const fail = (text) => penpot.ui.sendMessage({ type: "status", level: "error", text });
+    if (!target || target.type === "text" || target.id !== message.targetId ||
+      !penpot.currentFile || message.fileId !== penpot.currentFile.id || message.pageId !== penpot.currentPage?.id) {
+      fail("Select the original non-text layer and try again.");
+      return;
+    }
+    if ((target.getPluginData(ANNOTATIONS_KEY) || "") !== message.originalAnnotations) {
+      fail("XPath annotations changed. Reload before saving again.");
+      return;
+    }
+    const entries = readAnnotations(target);
+    const index = entries.findIndex((entry) => entry.id === message.annotationId);
+    if (message.annotationId && index === -1) {
+      fail("XPath annotation no longer exists. Reload before saving again.");
+      return;
+    }
+    if (message.type === "delete-annotation") {
+      if (index === -1) return;
+      entries.splice(index, 1);
+    } else {
+      const source = getSource(message.sourceId);
+      if (!source || source.characters !== message.xml) {
+        fail("XML source changed or is missing. Reload before saving again.");
+        return;
+      }
+      if (typeof message.path !== "string" || !message.path.trim() || typeof message.remark !== "string" || !message.remark.trim()) {
+        fail("XPath and remark are required.");
+        return;
+      }
+      const entry = {
+        id: index === -1 ? `note-${Date.now()}-${Math.random().toString(36).slice(2)}` : entries[index].id,
+        sourceId: source.id, path: message.path.trim(), remark: message.remark.trim(),
+      };
+      if (index === -1) entries.push(entry);
+      else entries[index] = entry;
+    }
+    target.setPluginData(ANNOTATIONS_KEY, JSON.stringify({ version: 1, entries }));
+    penpot.ui.sendMessage({ type: "annotation-saved", targetId: target.id });
+    sendSelection(message.sourceId);
     return;
   }
 

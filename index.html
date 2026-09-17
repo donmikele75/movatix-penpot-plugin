@@ -74,22 +74,35 @@
     .picker-node { display: inline-block; max-width: calc(100% - 22px); padding: 5px 6px; margin: 1px 0; text-align: left; vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-color: transparent; background: transparent; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .picker-node:hover, .picker-node:focus-visible { background: rgba(40,130,180,.15); border-color: #258a9b; }
     #pickerTree > .picker-node, .picker-children > .picker-node { display: block; }
+    #annotationRemark { min-height: 64px; font: inherit; }
+    #annotationList { margin-top: 12px; }
+    #annotationList details { border-top: 1px solid rgba(127,127,127,.3); padding-top: 8px; }
+    #annotationList summary, #annotationList p { overflow-wrap: anywhere; white-space: pre-wrap; }
   </style>
 </head>
 <body>
   <h1>XPath Inspector</h1>
 
   <section>
-    <label>Text layer name</label>
-    <div id="targetName" class="muted">No single text layer selected.</div>
+    <label>Layer name</label>
+    <div id="targetName" class="muted">No single layer selected.</div>
     <label for="path" style="margin-top:10px">XPath</label>
     <textarea id="path" spellcheck="false" disabled></textarea>
     <button id="pickXPath" style="margin-top:6px" disabled>Choose XML node</button>
     <label for="valuePreview" style="margin-top:10px">Value preview</label>
     <output id="valuePreview" class="muted" aria-live="polite"></output>
-    <div class="row" style="margin-top:10px">
+    <div id="textBindingActions" class="row" style="margin-top:10px">
       <button id="bind" class="primary" disabled>Apply binding</button>
       <button id="unbind" disabled>Remove binding</button>
+    </div>
+    <div id="annotationControls" hidden>
+      <label for="annotationRemark" style="margin-top:10px">Remark (required)</label>
+      <textarea id="annotationRemark" required></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="saveAnnotation" class="primary" disabled>Add XPath</button>
+        <button id="cancelAnnotation">Clear</button>
+      </div>
+      <div id="annotationList"></div>
     </div>
   </section>
 
@@ -154,6 +167,9 @@
   let editorSession = null;
   let savingSource = false;
   let highlightedXml = null;
+  let editingAnnotationId = "";
+  let annotationsSnapshot = "";
+  let sourceOptions = [];
 
   const $ = (id) => document.getElementById(id);
   const send = (message) => parent.postMessage(message, "*");
@@ -173,27 +189,90 @@
   }
 
   function renderSelection() {
-    $("targetName").textContent = selection ? selection.name : "No single text layer selected.";
+    $("targetName").textContent = selection ? selection.name : "No single layer selected.";
     $("targetName").title = selection?.id || "";
     $("path").disabled = !selection;
     $("newSource").disabled = !fileId;
     $("unbind").disabled = !selection?.sourceId;
+    const nonText = selection && selection.type !== "text";
+    $("textBindingActions").style.display = nonText ? "none" : "flex";
+    $("annotationControls").hidden = !nonText;
+    renderAnnotations();
     renderSource();
     renderPreview();
   }
 
   function renderPreview() {
     $("bind").disabled = true;
+    $("saveAnnotation").disabled = true;
     $("valuePreview").className = "muted";
     $("valuePreview").textContent = "";
     if (!selection || !source || !$("path").value.trim()) return;
     try {
       const value = resolveXml(source.characters, $("path").value.trim());
       $("valuePreview").textContent = value === "" ? "(empty value)" : value;
-      $("bind").disabled = false;
+      $("bind").disabled = selection.type !== "text";
+      $("saveAnnotation").disabled = selection.type === "text" || !$("annotationRemark").value.trim();
     } catch (err) {
       $("valuePreview").textContent = err.message || String(err);
       $("valuePreview").className = "error";
+    }
+  }
+
+  function resetAnnotationForm() {
+    editingAnnotationId = "";
+    annotationsSnapshot = selection?.annotationsRaw || "";
+    $("path").value = "";
+    $("annotationRemark").value = "";
+    $("saveAnnotation").textContent = "Add XPath";
+    $("cancelAnnotation").textContent = "Clear";
+    renderPreview();
+  }
+
+  function annotationContext() {
+    return { targetId: selection?.id, fileId, pageId };
+  }
+
+  function renderAnnotations() {
+    $("annotationList").replaceChildren();
+    if (!selection || selection.type === "text") return;
+    const entries = selection.annotations || [];
+    if (!entries.length) $("annotationList").textContent = "No XPath entries.";
+    for (const entry of entries) {
+      const item = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = entry.path;
+      const sourceName = document.createElement("p");
+      sourceName.className = "muted";
+      sourceName.textContent = sourceOptions.find((option) => option.id === entry.sourceId)?.name || "XML source not found";
+      const remark = document.createElement("p");
+      remark.textContent = entry.remark;
+      const actions = document.createElement("div");
+      actions.className = "row";
+      const edit = document.createElement("button");
+      edit.textContent = "Edit entry";
+      edit.onclick = () => {
+        editingAnnotationId = entry.id;
+        annotationsSnapshot = selection.annotationsRaw || "";
+        $("path").value = entry.path;
+        $("annotationRemark").value = entry.remark;
+        $("saveAnnotation").textContent = "Save XPath";
+        $("cancelAnnotation").textContent = "Cancel edit";
+        if (source?.id !== entry.sourceId) {
+          source = null;
+          $("sourceSelect").value = entry.sourceId;
+          renderSource();
+          send({ type: "select-source", sourceId: entry.sourceId, fileId });
+        }
+        renderPreview();
+        $("annotationRemark").focus();
+      };
+      const remove = document.createElement("button");
+      remove.textContent = "Delete entry";
+      remove.onclick = () => send({ type: "delete-annotation", ...annotationContext(), annotationId: entry.id, originalAnnotations: selection.annotationsRaw || "" });
+      actions.append(edit, remove);
+      item.append(summary, sourceName, remark, actions);
+      $("annotationList").append(item);
     }
   }
 
@@ -494,8 +573,25 @@
     $("pickerTree").replaceChildren();
     send({ type: "editor-size", expanded: false });
   };
-  $("reloadSource").onclick = () => send({ type: "get-selection" });
+  $("reloadSource").onclick = () => {
+    if (selection && selection.type !== "text") resetAnnotationForm();
+    send({ type: "get-selection" });
+  };
   $("path").oninput = renderPreview;
+  $("annotationRemark").oninput = renderPreview;
+  $("cancelAnnotation").onclick = resetAnnotationForm;
+  $("saveAnnotation").onclick = () => {
+    if (!selection || selection.type === "text" || !source) return;
+    const path = $("path").value.trim();
+    const remark = $("annotationRemark").value.trim();
+    if (!remark) return setStatus("A remark is required for every XPath.", "error");
+    try {
+      resolveXml(source.characters, path);
+      send({ type: "save-annotation", ...annotationContext(), annotationId: editingAnnotationId, originalAnnotations: annotationsSnapshot, sourceId: source.id, xml: source.characters, path, remark });
+    } catch (err) {
+      setStatus(err.message || String(err), "error");
+    }
+  };
   $("bind").onclick = () => {
     if (!source) return setStatus("Choose an XML source first.", "error");
     const path = $("path").value.trim();
@@ -519,13 +615,22 @@
 
     if (msg.type === "selection") {
       if ($("xpathPicker").open) $("xpathPicker").close();
+      const changedLayer = fileId !== msg.fileId || pageId !== msg.pageId || selection?.id !== msg.shape?.id || selection?.type !== msg.shape?.type;
+      if (changedLayer) {
+        editingAnnotationId = "";
+        $("annotationRemark").value = "";
+        $("saveAnnotation").textContent = "Add XPath";
+        $("cancelAnnotation").textContent = "Clear";
+      }
+      if (changedLayer || (!$("path").value && !$("annotationRemark").value && !editingAnnotationId)) annotationsSnapshot = msg.shape?.annotationsRaw || "";
       pageId = msg.pageId;
       fileId = msg.fileId;
-      if (selection?.id !== msg.shape?.id || selection?.path !== msg.shape?.path) {
+      if (changedLayer || selection?.path !== msg.shape?.path) {
         $("path").value = msg.shape?.path || "";
       }
       selection = msg.shape;
       source = msg.source;
+      sourceOptions = msg.sources || [];
       $("sourceSelect").replaceChildren();
       const placeholder = new Option("Select XML source", "");
       placeholder.disabled = true;
@@ -537,6 +642,10 @@
     }
 
     if (msg.type === "status") setStatus(msg.text, msg.level);
+    if (msg.type === "annotation-saved" && selection?.id === msg.targetId) {
+      resetAnnotationForm();
+      setStatus("XPath entries saved.", "ok");
+    }
 
     if (msg.type === "source-save-error" && editorSession) {
       savingSource = false;

@@ -396,3 +396,55 @@ test("corrupt or unsupported document storage is never overwritten", () => {
     assert.equal(harness.fileData["xml-binding-document-sources"], raw);
   }
 });
+
+test("non-text layers persist multiple XPath remarks, edit and delete without changing appearance", () => {
+  for (const type of ["rect", "circle", "path", "image", "group", "board", "bool"]) {
+    const harness = createHarness({ initialize: ({ target }) => { target.type = type; } });
+    const save = (overrides = {}) => harness.receive({
+      type: "save-annotation", targetId: "target", fileId: "file", pageId: "page", sourceId: "source",
+      xml: harness.source.characters, path: "/data/name", remark: " Required name ",
+      originalAnnotations: harness.target.getPluginData("xml-binding-annotations"), ...overrides,
+    });
+    assert.equal(harness.messages.at(-1).shape.type, type);
+    save();
+    save({ path: "count(/data/name)", remark: "Number of names" });
+    let entries = harness.messages.at(-1).shape.annotations;
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].remark, "Required name");
+    const id = entries[0].id;
+    save({ annotationId: id, remark: "Updated" });
+    harness.restart();
+    entries = harness.messages.at(-1).shape.annotations;
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].id, id);
+    assert.equal(entries[0].remark, "Updated");
+    harness.receive({ type: "delete-annotation", targetId: "target", fileId: "file", pageId: "page", annotationId: id, originalAnnotations: harness.target.getPluginData("xml-binding-annotations") });
+    assert.equal(harness.messages.at(-1).shape.annotations.length, 1);
+    assert.equal(harness.target.characters, "Original");
+    assert.equal(harness.target.getPluginData("xml-binding-path"), "");
+  }
+});
+
+test("XPath remarks reject empty values, stale context and conflicting writes", () => {
+  const harness = createHarness({ initialize: ({ target }) => { target.type = "rect"; } });
+  const message = { type: "save-annotation", targetId: "target", fileId: "file", pageId: "page", sourceId: "source", xml: harness.source.characters, path: "/data/name", remark: "Name", originalAnnotations: "" };
+  for (const override of [{ remark: " " }, { path: "" }, { targetId: "other" }, { fileId: "other" }, { pageId: "other" }, { xml: "stale" }, { sourceId: "missing" }, { annotationId: "missing" }]) {
+    harness.receive({ ...message, ...override });
+    assert.equal(harness.target.getPluginData("xml-binding-annotations"), "");
+  }
+  harness.penpot.selection = [harness.target, harness.source];
+  harness.receive(message);
+  assert.equal(harness.target.getPluginData("xml-binding-annotations"), "");
+  harness.penpot.selection = [harness.target];
+  harness.receive(message);
+  const saved = harness.target.getPluginData("xml-binding-annotations");
+  harness.receive(message);
+  assert.equal(harness.target.getPluginData("xml-binding-annotations"), saved);
+  harness.target.type = "text";
+  harness.receive({ ...message, originalAnnotations: saved });
+  assert.equal(harness.target.getPluginData("xml-binding-annotations"), saved);
+  harness.target.type = "rect";
+  harness.target.setPluginData("xml-binding-annotations", '{"version":2,"entries":[]}');
+  harness.receive({ ...message, originalAnnotations: '{"version":2,"entries":[]}' });
+  assert.equal(harness.target.getPluginData("xml-binding-annotations"), '{"version":2,"entries":[]}');
+});

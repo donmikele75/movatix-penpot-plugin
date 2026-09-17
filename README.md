@@ -25,6 +25,12 @@ The inspector follows the selected text layer and shows its bound source, even w
 
 The inspector is a separate plugin window, not an extension of Penpot's native Inspect sidebar. Sources are available across all pages of the current document and persist with the document, including for collaborators. **Refresh all bindings** updates targets on the current page only. Source changes are reread on selection changes, Reload, or Refresh all bindings; there is no background synchronization after the plugin closes.
 
+## Non-text layers
+
+Select any single non-text layer (for example a rectangle, image, group or board) to manage multiple XPath entries. Enter a path or use **Choose XML node**, then enter a mandatory **Remark** and click **Add XPath**. Each entry stores its XML source, XPath and remark in the layer's plugin data. Expand an entry to see its remark and source, **Edit entry**, or **Delete entry**. Different entries can reference different document XML sources.
+
+These entries are annotations only: they do not change the layer's appearance, and **Refresh all bindings** still updates text layers only. XPath syntax and results are checked in the preview before saving; blank remarks cannot be saved. Layer/file/page changes and conflicting writes are rejected. **Reload** on non-text layers discards the current draft and loads the latest entries; switching layers also discards an unsaved draft. Text layers retain their existing single binding and do not require remarks.
+
 ## XPath picker
 
 **Choose XML node** opens an expandable view of the selected source. Expand a branch using its disclosure arrow and click an element or attribute name to copy its absolute XPath into the field and update the preview. Values are shortened, including large Base64 fields, and child branches are rendered only when expanded. Cancel or Escape leaves the current XPath unchanged. Selecting a node does not save a binding; use **Apply binding** afterwards.
