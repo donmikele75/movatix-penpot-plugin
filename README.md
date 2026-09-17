@@ -31,6 +31,12 @@ Select any single non-text layer (for example a rectangle, image, group or board
 
 These entries are annotations only: they do not change the layer's appearance, and **Refresh all bindings** still updates text layers only. XPath syntax and results are checked in the preview before saving; blank remarks cannot be saved or kept (an emptied remark reverts to its previous value). Layer/file/page changes and conflicting writes are rejected. **Reload** on non-text layers discards the current draft and loads the latest entries; switching layers also discards an unsaved draft. Text layers retain their existing single binding and do not require remarks.
 
+## Repeater boards
+
+Select a **board** to reveal the **Repeater** section, in addition to its XPath entries. Bind the text layers inside the board to relative XPaths (for example `./name` instead of `/data/items/item/name`) using their own single binding as usual; the section lists these bound fields for reference. Enter a **Repeater XPath (node-set)** that selects the repeating elements (for example `/data/items/item`) and click **Generate instances**.
+
+For each matched element, the plugin duplicates the board and resolves every bound text field's path relative to that specific element (native XPath: paths starting with `/` still resolve from the document root, so absolute bindings inside a repeater board are unaffected). The first match fills the original board in place; the rest are placed as clones stacked vertically below it with a fixed gap. Regenerating removes the previously generated clones first, so it never duplicates; **Remove repeater** deletes all generated clones and clears the configuration, leaving the original board and its text values untouched.
+
 ## XPath picker
 
 **Choose XML node** opens an expandable view of the selected source. Expand a branch using its disclosure arrow and click an element or attribute name to copy its absolute XPath into the field and update the preview. Values are shortened, including large Base64 fields, and child branches are rendered only when expanded. Cancel or Escape leaves the current XPath unchanged. Selecting a node does not save a binding; use **Apply binding** afterwards.

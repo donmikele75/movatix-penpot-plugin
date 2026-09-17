@@ -82,6 +82,8 @@
     .annotation-edit, .annotation-delete { flex: none; width: auto; padding: 4px 8px; font-size: 11px; }
     .annotation-source { margin: 4px 0 0; overflow-wrap: anywhere; }
     .annotation-remark { margin-top: 4px; min-height: 44px; font-size: 12px; }
+    #repeaterFields { overflow-wrap: anywhere; white-space: pre-wrap; margin-top: 6px; }
+    #repeaterPath { min-height: 44px; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -102,6 +104,15 @@
       <div class="row" style="margin-top:8px">
         <button id="saveAnnotation" class="primary" disabled>Add XPath</button>
         <button id="cancelAnnotation">Clear</button>
+      </div>
+    </div>
+    <div id="repeaterControls" hidden>
+      <label for="repeaterPath" style="margin-top:10px">Repeater XPath (node-set)</label>
+      <textarea id="repeaterPath" spellcheck="false"></textarea>
+      <div id="repeaterFields" class="muted"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="applyRepeater" class="primary" disabled>Generate instances</button>
+        <button id="removeRepeater" disabled>Remove repeater</button>
       </div>
     </div>
   </section>
@@ -197,7 +208,9 @@
     const nonText = selection && selection.type !== "text";
     $("textBindingActions").style.display = nonText ? "none" : "block";
     $("annotationControls").hidden = !nonText;
+    $("repeaterControls").hidden = selection?.type !== "board";
     renderAnnotations();
+    renderRepeaterFields();
     renderSource();
     renderPreview();
   }
@@ -231,6 +244,17 @@
 
   function annotationContext() {
     return { targetId: selection?.id, fileId, pageId };
+  }
+
+  function renderRepeaterFields() {
+    $("repeaterFields").textContent = "";
+    if (!selection || selection.type !== "board") return;
+    const fields = (selection.repeaterFields || []).filter((field) => field.path);
+    $("repeaterFields").textContent = fields.length
+      ? `Bound fields: ${fields.map((field) => `${field.name} (${field.path})`).join(", ")}`
+      : "No bound text layers inside this board yet. Bind text layers inside it first.";
+    $("removeRepeater").disabled = !selection.repeater;
+    $("applyRepeater").disabled = !source || !$("repeaterPath").value.trim();
   }
 
   function renderAnnotations() {
@@ -440,13 +464,11 @@
     return text.trim();
   }
 
-  function resolveXml(xml, path) {
-    if (!xml || !path) throw new Error("Missing XML or path");
-    const doc = parseXml(normalizeXmlMarkup(xml));
-
+  function resolveNode(doc, contextNode, path) {
+    if (!path) throw new Error("Missing XPath");
     let result;
     try {
-      result = doc.evaluate(path, doc, doc.createNSResolver(doc.documentElement), XPathResult.ANY_TYPE, null);
+      result = doc.evaluate(path, contextNode, doc.createNSResolver(doc.documentElement), XPathResult.ANY_TYPE, null);
     } catch {
       throw new Error("Invalid XPath or unknown namespace prefix");
     }
@@ -454,9 +476,29 @@
     if (result.resultType === XPathResult.STRING_TYPE) return htmlToText(result.stringValue);
     if (result.resultType === XPathResult.NUMBER_TYPE) return String(result.numberValue);
     if (result.resultType === XPathResult.BOOLEAN_TYPE) return String(result.booleanValue);
-    const node = doc.evaluate(path, doc, doc.createNSResolver(doc.documentElement), XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    const node = doc.evaluate(path, contextNode, doc.createNSResolver(doc.documentElement), XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
     if (!node) throw new Error("XPath has no matches");
     return htmlToText(node.textContent?.trim() ?? "");
+  }
+
+  function resolveXml(xml, path) {
+    if (!xml || !path) throw new Error("Missing XML or path");
+    const doc = parseXml(normalizeXmlMarkup(xml));
+    return resolveNode(doc, doc, path);
+  }
+
+  function resolveNodeSet(xml, path) {
+    if (!xml || !path) throw new Error("Missing XML or path");
+    const doc = parseXml(normalizeXmlMarkup(xml));
+    let result;
+    try {
+      result = doc.evaluate(path, doc, doc.createNSResolver(doc.documentElement), XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+    } catch {
+      throw new Error("Repeater XPath must select a set of elements.");
+    }
+    const nodes = [];
+    for (let i = 0; i < result.snapshotLength; i++) nodes.push(result.snapshotItem(i));
+    return { doc, nodes };
   }
 
   function editorDiagnostic(text, level = "muted") {
@@ -626,6 +668,33 @@
   $("path").oninput = renderPreview;
   $("annotationRemark").oninput = renderPreview;
   $("cancelAnnotation").onclick = resetAnnotationForm;
+  $("repeaterPath").oninput = () => {
+    $("applyRepeater").disabled = !source || !$("repeaterPath").value.trim();
+  };
+  $("applyRepeater").onclick = () => {
+    if (!selection || selection.type !== "board" || !source) return;
+    const path = $("repeaterPath").value.trim();
+    if (!path) return setStatus("Repeater XPath is required.", "error");
+    try {
+      const { doc, nodes } = resolveNodeSet(source.characters, path);
+      const fields = (selection.repeaterFields || []).filter((field) => field.path);
+      const instances = nodes.map((node) => {
+        const values = {};
+        for (const field of fields) {
+          try {
+            values[field.id] = resolveNode(doc, node, field.path);
+          } catch {
+            values[field.id] = "";
+          }
+        }
+        return { values };
+      });
+      send({ type: "apply-repeater", targetId: selection.id, fileId, pageId, sourceId: source.id, xml: source.characters, path, instances });
+    } catch (err) {
+      setStatus(err.message || String(err), "error");
+    }
+  };
+  $("removeRepeater").onclick = () => send({ type: "remove-repeater", targetId: selection?.id, fileId, pageId });
   $("saveAnnotation").onclick = () => {
     if (!selection || selection.type === "text" || !source) return;
     const path = $("path").value.trim();
@@ -672,6 +741,9 @@
       fileId = msg.fileId;
       if (changedLayer || selection?.path !== msg.shape?.path) {
         $("path").value = msg.shape?.path || "";
+      }
+      if (changedLayer) {
+        $("repeaterPath").value = msg.shape?.repeater?.path || "";
       }
       selection = msg.shape;
       source = msg.source;

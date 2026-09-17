@@ -4,6 +4,9 @@ const XML_KEY = "xml-binding-xml";
 const SOURCES_KEY = "xml-binding-document-sources";
 const DEFAULT_SOURCE_KEY = "xml-binding-default-source";
 const ANNOTATIONS_KEY = "xml-binding-annotations";
+const REPEATER_KEY = "xml-binding-repeater";
+const REPEATER_INSTANCES_KEY = "xml-binding-repeater-instances";
+const REPEATER_GAP = 24;
 
 function readSources() {
   const raw = penpot.currentFile?.getPluginData(SOURCES_KEY);
@@ -66,12 +69,46 @@ function readAnnotations(shape) {
   return data.entries;
 }
 
+function collectTextDescendants(shape, list = []) {
+  for (const child of shape.children || []) {
+    if (child.type === "text") list.push(child);
+    else collectTextDescendants(child, list);
+  }
+  return list;
+}
+
+function readRepeater(shape) {
+  const raw = shape?.getPluginData(REPEATER_KEY) || "";
+  if (!raw) return null;
+  const data = JSON.parse(raw);
+  if (data.version !== 1 || typeof data.sourceId !== "string" || !data.sourceId.trim() || typeof data.path !== "string" || !data.path.trim()) {
+    throw new Error("Unsupported repeater configuration. Existing data was not changed.");
+  }
+  return data;
+}
+
+function readRepeaterInstanceIds(shape) {
+  const raw = shape?.getPluginData(REPEATER_INSTANCES_KEY) || "";
+  if (!raw) return [];
+  const ids = JSON.parse(raw);
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) {
+    throw new Error("Unsupported repeater instance list. Existing data was not changed.");
+  }
+  return ids;
+}
+
 function sendSelection(preferredSourceId) {
   const shape = getSelectedShape();
   let annotations;
+  let repeater = null;
+  let repeaterFields = [];
   try {
     migrateSources();
     annotations = shape?.type !== "text" ? readAnnotations(shape) : [];
+    if (shape?.type === "board") {
+      repeater = readRepeater(shape);
+      repeaterFields = collectTextDescendants(shape).map((child) => ({ id: child.id, name: child.name, path: child.getPluginData(PATH_KEY) || "" }));
+    }
   } catch (error) {
     penpot.ui.sendMessage({ type: "status", level: "error", text: error.message || String(error) });
     return;
@@ -91,6 +128,8 @@ function sendSelection(preferredSourceId) {
           type: shape.type,
           annotations,
           annotationsRaw: shape.getPluginData(ANNOTATIONS_KEY) || "",
+          repeater,
+          repeaterFields,
           characters: shape.characters ?? "",
           sourceId: shape.getPluginData(SOURCE_KEY) || "",
           path: shape.getPluginData(PATH_KEY) || "",
@@ -235,6 +274,70 @@ function handleMessage(message) {
     target.setPluginData(ANNOTATIONS_KEY, JSON.stringify({ version: 1, entries }));
     penpot.ui.sendMessage({ type: "annotation-saved", targetId: target.id });
     sendSelection(message.sourceId);
+    return;
+  }
+
+  if (message.type === "apply-repeater") {
+    const target = getSelectedShape();
+    const fail = (text) => penpot.ui.sendMessage({ type: "status", level: "error", text });
+    if (!target || target.type !== "board" || target.id !== message.targetId ||
+      !penpot.currentFile || message.fileId !== penpot.currentFile.id || message.pageId !== penpot.currentPage?.id) {
+      fail("Select the original board and try again.");
+      return;
+    }
+    const source = getSource(message.sourceId);
+    if (!source || source.characters !== message.xml) {
+      fail("XML source changed or is missing. Reload before applying again.");
+      return;
+    }
+    if (typeof message.path !== "string" || !message.path.trim()) {
+      fail("Repeater XPath is required.");
+      return;
+    }
+    if (!Array.isArray(message.instances)) {
+      fail("Missing repeater instance data.");
+      return;
+    }
+    const page = penpot.currentPage;
+    if (!page) return;
+    for (const id of readRepeaterInstanceIds(target)) page.getShapeById(id)?.remove();
+
+    const fields = collectTextDescendants(target);
+    const createdIds = [];
+    message.instances.forEach((instance, index) => {
+      if (index === 0) {
+        for (const field of fields) {
+          if (field.getPluginData(PATH_KEY) && instance.values[field.id] !== undefined) field.characters = instance.values[field.id];
+        }
+        return;
+      }
+      const clone = target.clone();
+      clone.x = target.x;
+      clone.y = target.y + index * (target.height + REPEATER_GAP);
+      const cloneFields = collectTextDescendants(clone);
+      fields.forEach((field, fieldIndex) => {
+        if (field.getPluginData(PATH_KEY) && instance.values[field.id] !== undefined) cloneFields[fieldIndex].characters = instance.values[field.id];
+      });
+      createdIds.push(clone.id);
+    });
+
+    target.setPluginData(REPEATER_KEY, JSON.stringify({ version: 1, sourceId: source.id, path: message.path.trim() }));
+    target.setPluginData(REPEATER_INSTANCES_KEY, JSON.stringify(createdIds));
+    penpot.ui.sendMessage({ type: "status", level: "ok", text: `Generated ${message.instances.length} repeater instance(s).` });
+    sendSelection(message.sourceId);
+    return;
+  }
+
+  if (message.type === "remove-repeater") {
+    const target = getSelectedShape();
+    if (!target || target.type !== "board" || target.id !== message.targetId ||
+      !penpot.currentFile || message.fileId !== penpot.currentFile.id || message.pageId !== penpot.currentPage?.id) return;
+    const page = penpot.currentPage;
+    if (page) for (const id of readRepeaterInstanceIds(target)) page.getShapeById(id)?.remove();
+    target.setPluginData(REPEATER_KEY, "");
+    target.setPluginData(REPEATER_INSTANCES_KEY, "");
+    penpot.ui.sendMessage({ type: "status", level: "ok", text: "Repeater removed." });
+    sendSelection();
     return;
   }
 

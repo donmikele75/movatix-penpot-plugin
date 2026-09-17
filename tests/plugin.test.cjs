@@ -183,6 +183,40 @@ function createHarness(options = {}) {
   const otherSource = createShape("other-source", "<data><name>Beta</name></data>");
   const target = createShape("target", "Original");
   const shapes = new Map([source, otherSource, target].map((shape) => [shape.id, shape]));
+  let cloneCounter = 0;
+  function cloneShape(shape) {
+    cloneCounter += 1;
+    const id = `${shape.id}-clone-${cloneCounter}`;
+    const data = {};
+    const clone = {
+      id, name: shape.name, type: shape.type, x: shape.x, y: shape.y, height: shape.height,
+      characters: shape.characters,
+      children: shape.children ? shape.children.map((child) => cloneShape(child)) : undefined,
+      getPluginData: (key) => data[key] || "",
+      setPluginData: (key, value) => { data[key] = value; },
+      remove: () => shapes.delete(id),
+    };
+    clone.clone = () => cloneShape(clone);
+    shapes.set(id, clone);
+    return clone;
+  }
+  function createBoard(id, children, position = { x: 0, y: 0, height: 100 }) {
+    const data = {};
+    const board = { id, name: id, type: "board", children, ...position };
+    board.getPluginData = (key) => data[key] || "";
+    board.setPluginData = (key, value) => { data[key] = value; };
+    board.remove = () => shapes.delete(id);
+    board.clone = () => cloneShape(board);
+    const registerTree = (shape) => {
+      shapes.set(shape.id, shape);
+      for (const child of shape.children || []) {
+        child.parent = shape;
+        registerTree(child);
+      }
+    };
+    registerTree(board);
+    return board;
+  }
   const messages = [];
   const sizes = [];
   const listeners = {};
@@ -209,14 +243,14 @@ function createHarness(options = {}) {
     on: (event, callback) => { listeners[event] = callback; },
   };
   penpot.currentFile.pages = [penpot.currentPage];
-  options.initialize?.({ penpot, target, source, otherSource, shapes });
+  options.initialize?.({ penpot, target, source, otherSource, shapes, createBoard, createShape });
   const restart = () => vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../plugin.js"), "utf8"), { penpot });
   restart();
   const bind = (overrides = {}) => receive({
     type: "bind", targetId: target.id, sourceId: source.id,
     xml: source.characters, path: "/data/name", value: "Alpha", ...overrides,
   });
-  return { source, otherSource, target, shapes, messages, sizes, listeners, penpot, bind, fileData, restart, receive: (message) => receive(message) };
+  return { source, otherSource, target, shapes, messages, sizes, listeners, penpot, bind, fileData, restart, createBoard, createShape, receive: (message) => receive(message) };
 }
 
 test("source editor expands and restores the plugin window", () => {
@@ -475,4 +509,85 @@ test("remark updates reject empty values, stale context, unknown ids and text la
   harness.target.type = "text";
   harness.receive(message);
   assert.equal(harness.target.getPluginData("xml-binding-annotations"), snapshot);
+});
+
+function createRepeaterHarness() {
+  const xml = "<data><items><item><name>First</name></item><item><name>Second</name></item><item><name>Third</name></item></items></data>";
+  let board;
+  const harness = createHarness({
+    initialize: ({ source, createBoard, createShape, penpot }) => {
+      source.characters = xml;
+      const label = createShape("label", "Template", { "xml-binding-source": "source", "xml-binding-path": "./name" });
+      board = createBoard("board", [label], { x: 10, y: 20, height: 100 });
+      penpot.selection = [board];
+    },
+  });
+  const apply = (overrides = {}) => harness.receive({
+    type: "apply-repeater", targetId: "board", fileId: "file", pageId: "page",
+    sourceId: "source", xml, path: "/data/items/item",
+    instances: [{ values: { label: "First" } }, { values: { label: "Second" } }, { values: { label: "Third" } }],
+    ...overrides,
+  });
+  return { ...harness, board: () => board, xml, apply };
+}
+
+test("apply-repeater fills the template and clones a board per matched node", () => {
+  const harness = createRepeaterHarness();
+  harness.apply();
+  const board = harness.board();
+  assert.equal(harness.shapes.get("label").characters, "First");
+  const instanceIds = JSON.parse(board.getPluginData("xml-binding-repeater-instances"));
+  assert.equal(instanceIds.length, 2);
+  const [clone1, clone2] = instanceIds.map((id) => harness.shapes.get(id));
+  assert.equal(clone1.children[0].characters, "Second");
+  assert.equal(clone2.children[0].characters, "Third");
+  assert.equal(clone1.x, board.x);
+  assert.equal(clone1.y, board.y + 1 * (board.height + 24));
+  assert.equal(clone2.y, board.y + 2 * (board.height + 24));
+  assert.deepEqual(JSON.parse(board.getPluginData("xml-binding-repeater")), { version: 1, sourceId: "source", path: "/data/items/item" });
+  assert.equal(harness.messages.at(-1).shape.repeater.path, "/data/items/item");
+  assert.equal(harness.messages.at(-1).shape.repeaterFields[0].path, "./name");
+});
+
+test("re-applying a repeater removes previously generated instances before creating new ones", () => {
+  const harness = createRepeaterHarness();
+  harness.apply();
+  const firstRoundIds = JSON.parse(harness.board().getPluginData("xml-binding-repeater-instances"));
+  harness.apply({ instances: [{ values: { label: "Only" } }] });
+  for (const id of firstRoundIds) assert.equal(harness.shapes.has(id), false);
+  assert.equal(JSON.parse(harness.board().getPluginData("xml-binding-repeater-instances")).length, 0);
+  assert.equal(harness.shapes.get("label").characters, "Only");
+});
+
+test("apply-repeater rejects wrong target, stale XML, missing path and non-array instances", () => {
+  const harness = createRepeaterHarness();
+  for (const overrides of [
+    { targetId: "other" }, { fileId: "other" }, { pageId: "other" },
+    { xml: "stale" }, { path: "" }, { instances: "not-an-array" },
+  ]) {
+    harness.apply(overrides);
+    assert.equal(harness.board().getPluginData("xml-binding-repeater"), "");
+  }
+  harness.penpot.selection = [harness.target];
+  harness.apply();
+  assert.equal(harness.board().getPluginData("xml-binding-repeater"), "");
+});
+
+test("remove-repeater clears the configuration and deletes generated clones", () => {
+  const harness = createRepeaterHarness();
+  harness.apply();
+  const instanceIds = JSON.parse(harness.board().getPluginData("xml-binding-repeater-instances"));
+  harness.receive({ type: "remove-repeater", targetId: "board", fileId: "file", pageId: "page" });
+  assert.equal(harness.board().getPluginData("xml-binding-repeater"), "");
+  assert.equal(harness.board().getPluginData("xml-binding-repeater-instances"), "");
+  for (const id of instanceIds) assert.equal(harness.shapes.has(id), false);
+  assert.equal(harness.shapes.get("label").characters, "First");
+});
+
+test("corrupt repeater configuration is reported and never overwritten", () => {
+  const harness = createRepeaterHarness();
+  harness.board().setPluginData("xml-binding-repeater", '{"version":2}');
+  harness.listeners.selectionchange();
+  assert.match(harness.messages.at(-1).text, /Unsupported repeater configuration/);
+  assert.equal(harness.board().getPluginData("xml-binding-repeater"), '{"version":2}');
 });
