@@ -591,3 +591,18 @@ test("corrupt repeater configuration is reported and never overwritten", () => {
   assert.match(harness.messages.at(-1).text, /Unsupported repeater configuration/);
   assert.equal(harness.board().getPluginData("xml-binding-repeater"), '{"version":2}');
 });
+
+test("a text layer inside a repeater board reports the ancestor repeater config for context-aware preview", () => {
+  const harness = createRepeaterHarness();
+  harness.apply();
+  const label = harness.shapes.get("label");
+  harness.penpot.selection = [label];
+  harness.listeners.selectionchange();
+  assert.equal(JSON.stringify(harness.messages.at(-1).shape.ancestorRepeater), JSON.stringify({ version: 1, sourceId: "source", path: "/data/items/item" }));
+});
+
+test("a text layer outside any repeater board reports no ancestor repeater", () => {
+  const harness = createHarness({ initialize: ({ target }) => { target.type = "text"; } });
+  harness.listeners.selectionchange();
+  assert.equal(harness.messages.at(-1).shape.ancestorRepeater, null);
+});

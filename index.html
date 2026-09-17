@@ -93,6 +93,7 @@
     <label for="path" style="margin-top:10px">XPath</label>
     <textarea id="path" spellcheck="false" disabled></textarea>
     <button id="pickXPath" style="margin-top:6px" disabled>Choose XML node</button>
+    <div id="repeaterContextNote" class="muted" hidden>Inside a repeater board: preview and picker use the first matched element as context.</div>
     <label for="valuePreview" style="margin-top:10px">Value preview</label>
     <output id="valuePreview" class="muted" aria-live="polite"></output>
     <div id="textBindingActions" style="margin-top:10px">
@@ -209,6 +210,7 @@
     $("textBindingActions").style.display = nonText ? "none" : "block";
     $("annotationControls").hidden = !nonText;
     $("repeaterControls").hidden = selection?.type !== "board";
+    $("repeaterContextNote").hidden = !(selection?.type === "text" && selection.ancestorRepeater);
     renderAnnotations();
     renderRepeaterFields();
     renderSource();
@@ -222,7 +224,7 @@
     $("valuePreview").textContent = "";
     if (!selection || !source || !$("path").value.trim()) return;
     try {
-      const value = resolveXml(source.characters, $("path").value.trim());
+      const value = resolveValue(source.characters, $("path").value.trim(), selection.type === "text" ? selection.ancestorRepeater : null);
       $("valuePreview").textContent = value === "" ? "(empty value)" : value;
       $("bind").disabled = selection.type !== "text";
       $("saveAnnotation").disabled = selection.type === "text" || !$("annotationRemark").value.trim();
@@ -368,20 +370,21 @@
     return `concat(${value.split("'").map((part) => `'${part}'`).join(', "\'", ')})`;
   }
 
-  function nodeXPath(node, preferIds = false) {
+  function nodeXPath(node, preferIds = false, root = null) {
+    if (node === root) return ".";
     if (node.nodeType === 9) return "";
     const attribute = node.nodeType === 2;
     const parent = attribute ? node.ownerElement : node.parentNode;
     const name = node.namespaceURI
       ? `*[local-name()=${xpathLiteral(node.localName)} and namespace-uri()=${xpathLiteral(node.namespaceURI)}]`
       : node.nodeName;
-    if (attribute) return `${nodeXPath(parent, preferIds)}/@${name}`;
+    if (attribute) return `${nodeXPath(parent, preferIds, root)}/@${name}`;
     const siblings = Array.from(parent.children).filter((child) => child.localName === node.localName && child.namespaceURI === node.namespaceURI);
     const id = node.getAttribute("id");
     const predicate = preferIds && id && siblings.filter((child) => child.getAttribute("id") === id).length === 1
       ? `[@id=${xpathLiteral(id)}]`
       : siblings.length > 1 ? `[${siblings.indexOf(node) + 1}]` : "";
-    return `${nodeXPath(parent, preferIds)}/${name}${predicate}`;
+    return `${nodeXPath(parent, preferIds, root)}/${name}${predicate}`;
   }
 
   function openXPathPicker() {
@@ -392,6 +395,14 @@
     } catch (err) {
       setStatus(err.message || String(err), "error");
       return;
+    }
+    let root = null;
+    if (selection.type === "text" && selection.ancestorRepeater) {
+      try {
+        root = doc.evaluate(selection.ancestorRepeater.path, doc, doc.createNSResolver(doc.documentElement), XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+      } catch {
+        root = null;
+      }
     }
     const attributes = (node) => Array.from(node.attributes).filter((attribute) => attribute.namespaceURI !== "http://www.w3.org/2000/xmlns/");
     const shortened = (value) => {
@@ -408,7 +419,7 @@
       button.onclick = (event) => {
         event.preventDefault();
         event.stopPropagation();
-        $("path").value = nodeXPath(node, $("preferIds").checked);
+        $("path").value = nodeXPath(node, $("preferIds").checked, root);
         renderPreview();
         $("xpathPicker").close();
         $("path").focus();
@@ -431,7 +442,7 @@
       populate();
       return branch;
     };
-    $("pickerTree").replaceChildren(makeNode(doc.documentElement, true));
+    $("pickerTree").replaceChildren(makeNode(root || doc.documentElement, true));
     $("xpathPicker").showModal();
     send({ type: "editor-size", expanded: true });
   }
@@ -499,6 +510,13 @@
     const nodes = [];
     for (let i = 0; i < result.snapshotLength; i++) nodes.push(result.snapshotItem(i));
     return { doc, nodes };
+  }
+
+  function resolveValue(xml, path, ancestorRepeater) {
+    if (!ancestorRepeater) return resolveXml(xml, path);
+    const { doc, nodes } = resolveNodeSet(xml, ancestorRepeater.path);
+    if (!nodes.length) throw new Error("Repeater XPath has no matches to preview against.");
+    return resolveNode(doc, nodes[0], path);
   }
 
   function editorDiagnostic(text, level = "muted") {
@@ -711,7 +729,7 @@
     if (!source) return setStatus("Choose an XML source first.", "error");
     const path = $("path").value.trim();
     try {
-      const value = resolveXml(source.characters, path);
+      const value = resolveValue(source.characters, path, selection?.ancestorRepeater);
       send({ type: "bind", targetId: selection?.id, sourceId: source.id, xml: source.characters, path, value });
     } catch (err) {
       setStatus(err.message || String(err), "error");
