@@ -1,20 +1,24 @@
 const SOURCE_KEY = "xml-binding-source";
 const PATH_KEY = "xml-binding-path";
 
-penpot.ui.open("XML Data Binding", "index.html", {
+penpot.ui.open("XPath Inspector", "index.html", {
   width: 360,
   height: 560,
 });
 
 function getSelectedText() {
+  if (penpot.selection?.length !== 1) return null;
   const shape = penpot.selection?.[0];
   return shape && shape.type === "text" ? shape : null;
 }
 
 function sendSelection() {
   const shape = getSelectedText();
+  const sourceId = shape?.getPluginData(SOURCE_KEY) || penpot.currentFile?.getPluginData("xml-binding-default-source") || "";
+  const source = getSourceShape(sourceId);
   penpot.ui.sendMessage({
     type: "selection",
+    source: source ? { id: source.id, name: source.name, characters: source.characters ?? "" } : null,
     shape: shape
       ? {
           id: shape.id,
@@ -60,6 +64,8 @@ function refreshAll() {
 }
 
 penpot.on("selectionchange", sendSelection);
+penpot.on("pagechange", sendSelection);
+penpot.on("filechange", sendSelection);
 sendSelection();
 
 penpot.ui.onMessage((message) => {
@@ -77,22 +83,7 @@ penpot.ui.onMessage((message) => {
       return;
     }
     penpot.currentFile?.setPluginData("xml-binding-default-source", shape.id);
-    penpot.ui.sendMessage({
-      type: "source-marked",
-      source: { id: shape.id, name: shape.name, characters: shape.characters ?? "" },
-    });
-    return;
-  }
-
-  if (message.type === "get-default-source") {
-    const sourceId = penpot.currentFile?.getPluginData("xml-binding-default-source") || "";
-    const source = getSourceShape(sourceId);
-    penpot.ui.sendMessage({
-      type: "default-source",
-      source: source
-        ? { id: source.id, name: source.name, characters: source.characters ?? "" }
-        : null,
-    });
+    sendSelection();
     return;
   }
 
@@ -108,8 +99,15 @@ penpot.ui.onMessage((message) => {
       return;
     }
 
+    if (target.id !== message.targetId || source.characters !== message.xml) {
+      penpot.ui.sendMessage({ type: "status", level: "error", text: "Selection or XML changed. Reload and apply again." });
+      sendSelection();
+      return;
+    }
+    if (typeof message.path !== "string" || !message.path.trim() || typeof message.value !== "string") return;
     target.setPluginData(SOURCE_KEY, source.id);
-    target.setPluginData(PATH_KEY, message.path || "");
+    target.setPluginData(PATH_KEY, message.path.trim());
+    target.characters = message.value;
     penpot.ui.sendMessage({ type: "status", level: "ok", text: `Bound “${target.name}”.` });
     sendSelection();
     return;
@@ -117,7 +115,7 @@ penpot.ui.onMessage((message) => {
 
   if (message.type === "unbind") {
     const target = getSelectedText();
-    if (!target) return;
+    if (!target || target.id !== message.targetId) return;
     target.setPluginData(SOURCE_KEY, "");
     target.setPluginData(PATH_KEY, "");
     penpot.ui.sendMessage({ type: "status", level: "ok", text: `Removed binding from “${target.name}”.` });
@@ -152,5 +150,6 @@ penpot.ui.onMessage((message) => {
       updated,
       errors,
     });
+    sendSelection();
   }
 });

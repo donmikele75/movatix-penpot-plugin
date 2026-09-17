@@ -39,6 +39,8 @@ jobs:
           for (const script of scripts) new Function(script[1]);
           console.log('Manifest and JavaScript syntax checks passed.');
           NODE
+      - name: Test plugin behavior
+        run: node --test tests/*.test.cjs
       - name: Prepare static site
         run: |
           mkdir _site

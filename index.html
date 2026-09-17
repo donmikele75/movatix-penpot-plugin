@@ -3,20 +3,26 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>XML Data Binding</title>
+  <title>XPath Inspector</title>
   <style>
     :root { font-family: Inter, system-ui, sans-serif; color-scheme: light dark; }
     body { margin: 0; padding: 16px; font-size: 13px; }
     h1 { margin: 0 0 14px; font-size: 16px; }
-    .card { border: 1px solid rgba(127,127,127,.35); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+    section { border-bottom: 1px solid rgba(127,127,127,.35); padding-bottom: 14px; margin-bottom: 14px; }
+    #sourceName, #targetName, #status, #valuePreview { overflow-wrap: anywhere; }
+    #valuePreview { display: block; min-height: 40px; max-height: 100px; overflow: auto; white-space: pre-wrap; margin-top: 6px; }
+    details { margin-top: 10px; }
+    summary { cursor: pointer; }
+    button:disabled { opacity: .45; cursor: default; }
     label { display: block; margin-bottom: 5px; font-weight: 600; }
     input, textarea, button { font: inherit; }
     input, textarea { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); background: transparent; }
-    textarea { min-height: 110px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+    textarea { min-height: 100px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+    #path { min-height: 64px; margin: 0; font-size: 12px; }
     button { border: 1px solid rgba(127,127,127,.45); border-radius: 6px; padding: 8px 10px; cursor: pointer; }
     .primary { font-weight: 700; }
     .row { display: flex; gap: 8px; }
-    .row > * { flex: 1; }
+    .row > * { flex: 1; min-width: 0; }
     .muted { opacity: .72; font-size: 12px; }
     #status { margin-top: 10px; min-height: 18px; }
     .ok { color: #2e9d5b; }
@@ -25,34 +31,36 @@
   </style>
 </head>
 <body>
-  <h1>XML Data Binding</h1>
+  <h1>XPath Inspector</h1>
 
-  <div class="card">
-    <label>1. XML source layer</label>
+  <section>
+    <label>Text layer</label>
+    <div id="targetName" class="muted">No single text layer selected.</div>
+    <label for="path" style="margin-top:10px">XPath</label>
+    <textarea id="path" spellcheck="false" disabled></textarea>
+    <label for="valuePreview" style="margin-top:10px">Value preview</label>
+    <output id="valuePreview" class="muted" aria-live="polite"></output>
+    <div class="row" style="margin-top:10px">
+      <button id="bind" class="primary" disabled>Apply binding</button>
+      <button id="unbind" disabled>Remove binding</button>
+    </div>
+  </section>
+
+  <section>
+    <label>XML source</label>
     <div id="sourceName" class="muted">No source selected.</div>
     <div class="row" style="margin-top:8px">
-      <button id="markSource">Use selected text as source</button>
-      <button id="reloadSource">Reload source</button>
+      <button id="markSource" disabled>Set selection as source</button>
+      <button id="reloadSource">Reload</button>
     </div>
-    <textarea id="xmlPreview" readonly placeholder="XML from the source text layer appears here"></textarea>
-  </div>
-
-  <div class="card">
-    <label>2. Target text layer</label>
-    <div id="targetName" class="muted">Select a text layer in Penpot.</div>
-
-    <label for="path" style="margin-top:10px">XML path</label>
-    <input id="path" value="/product/name" placeholder="/product/name" />
-    <div class="muted" style="margin-top:6px">Simple element paths are supported, e.g. <code>/product/name</code>. Attributes: <code>/product/@id</code>.</div>
-
-    <div class="row" style="margin-top:10px">
-      <button id="bind" class="primary">Bind selected layer</button>
-      <button id="unbind">Remove binding</button>
-    </div>
-  </div>
+    <details>
+      <summary>Source XML</summary>
+      <textarea id="xmlPreview" aria-label="Source XML" readonly></textarea>
+    </details>
+  </section>
 
   <button id="refresh" class="primary" style="width:100%">Refresh all bindings</button>
-  <div id="status" class="muted"></div>
+  <div id="status" class="muted" role="status"></div>
 
 <script>
   let source = null;
@@ -67,13 +75,35 @@
   }
 
   function renderSource() {
-    $("sourceName").textContent = source ? `${source.name} (${source.id})` : "No source selected.";
+    $("sourceName").textContent = source ? source.name : selection?.sourceId ? "Bound source not found on this page." : "No source selected.";
+    $("sourceName").title = source?.id || "";
     $("xmlPreview").value = source?.characters || "";
   }
 
   function renderSelection() {
-    $("targetName").textContent = selection ? `${selection.name} (${selection.id})` : "Select a text layer in Penpot.";
-    if (selection?.path) $("path").value = selection.path;
+    $("targetName").textContent = selection ? selection.name : "No single text layer selected.";
+    $("targetName").title = selection?.id || "";
+    $("path").disabled = !selection;
+    $("markSource").disabled = !selection;
+    $("unbind").disabled = !selection?.sourceId;
+    renderSource();
+    renderPreview();
+  }
+
+  function renderPreview() {
+    $("bind").disabled = true;
+    $("valuePreview").className = "muted";
+    $("valuePreview").textContent = "";
+    if (!selection || !source || !$("path").value.trim()) return;
+    if (selection.id === source.id) return;
+    try {
+      const value = resolveXml(source.characters, $("path").value.trim());
+      $("valuePreview").textContent = value === "" ? "(empty value)" : value;
+      $("bind").disabled = false;
+    } catch (err) {
+      $("valuePreview").textContent = err.message || String(err);
+      $("valuePreview").className = "error";
+    }
   }
 
   function resolveXml(xml, path) {
@@ -82,58 +112,52 @@
     const parserError = doc.querySelector("parsererror");
     if (parserError) throw new Error("Invalid XML");
 
-    const parts = path.split("/").filter(Boolean);
-    let node = doc.documentElement;
-    if (!node) throw new Error("XML has no root element");
-
-    if (parts[0] === node.nodeName) parts.shift();
-
-    for (const part of parts) {
-      if (part.startsWith("@")) {
-        const value = node.getAttribute(part.slice(1));
-        if (value == null) throw new Error(`Attribute ${part} not found`);
-        return value;
-      }
-      const next = Array.from(node.children).find((child) => child.nodeName === part);
-      if (!next) throw new Error(`Element ${part} not found`);
-      node = next;
+    let result;
+    try {
+      result = doc.evaluate(path, doc, doc.createNSResolver(doc.documentElement), XPathResult.ANY_TYPE, null);
+    } catch {
+      throw new Error("Invalid XPath or unknown namespace prefix");
     }
 
+    if (result.resultType === XPathResult.STRING_TYPE) return result.stringValue;
+    if (result.resultType === XPathResult.NUMBER_TYPE) return String(result.numberValue);
+    if (result.resultType === XPathResult.BOOLEAN_TYPE) return String(result.booleanValue);
+    const node = doc.evaluate(path, doc, doc.createNSResolver(doc.documentElement), XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    if (!node) throw new Error("XPath has no matches");
     return node.textContent?.trim() ?? "";
   }
 
   $("markSource").onclick = () => send({ type: "mark-source" });
-  $("reloadSource").onclick = () => send({ type: "get-default-source" });
+  $("reloadSource").onclick = () => send({ type: "get-selection" });
+  $("path").oninput = renderPreview;
   $("bind").onclick = () => {
     if (!source) return setStatus("Choose an XML source first.", "error");
     const path = $("path").value.trim();
     try {
-      const preview = resolveXml(source.characters, path);
-      setStatus(`Preview: ${preview}`, "ok");
-      send({ type: "bind", sourceId: source.id, path });
+      const value = resolveXml(source.characters, path);
+      send({ type: "bind", targetId: selection?.id, sourceId: source.id, xml: source.characters, path, value });
     } catch (err) {
       setStatus(err.message || String(err), "error");
     }
   };
-  $("unbind").onclick = () => send({ type: "unbind" });
+  $("unbind").onclick = () => send({ type: "unbind", targetId: selection?.id });
   $("refresh").onclick = () => {
     setStatus("Refreshing…", "muted");
     send({ type: "refresh-all" });
   };
 
   window.addEventListener("message", (event) => {
+    if (event.source !== parent) return;
     const msg = event.data;
     if (!msg || typeof msg !== "object") return;
 
     if (msg.type === "selection") {
+      if (selection?.id !== msg.shape?.id || selection?.path !== msg.shape?.path) {
+        $("path").value = msg.shape?.path || "";
+      }
       selection = msg.shape;
-      renderSelection();
-    }
-
-    if (msg.type === "source-marked" || msg.type === "default-source") {
       source = msg.source;
-      renderSource();
-      if (source) setStatus("XML source ready.", "ok");
+      renderSelection();
     }
 
     if (msg.type === "status") setStatus(msg.text, msg.level);
@@ -158,7 +182,6 @@
     }
   });
 
-  send({ type: "get-default-source" });
   send({ type: "get-selection" });
 </script>
 </body>
