@@ -93,7 +93,7 @@
     <label for="path" style="margin-top:10px">XPath</label>
     <textarea id="path" spellcheck="false" disabled></textarea>
     <button id="pickXPath" style="margin-top:6px" disabled>Choose XML node</button>
-    <div id="repeaterContextNote" class="muted" hidden>Inside a repeater board: preview and picker use the first matched element as context.</div>
+    <div id="repeaterContextNote" class="muted" hidden>Inside a repeater container: preview and picker use the first matched element as context.</div>
     <label for="valuePreview" style="margin-top:10px">Value preview</label>
     <output id="valuePreview" class="muted" aria-live="polite"></output>
     <div id="textBindingActions" style="margin-top:10px">
@@ -108,7 +108,7 @@
       </div>
     </div>
     <div id="repeaterControls" hidden>
-      <label for="repeaterPath" style="margin-top:10px">Repeater XPath (node-set)</label>
+      <label for="repeaterPath" style="margin-top:10px">Repeater container: XPath (node-set)</label>
       <textarea id="repeaterPath" spellcheck="false"></textarea>
       <div id="repeaterFields" class="muted"></div>
       <div class="row" style="margin-top:8px">
@@ -182,6 +182,7 @@
   let editingAnnotationId = "";
   let annotationsSnapshot = "";
   let sourceOptions = [];
+  const repeaterDrafts = new Map();
 
   const $ = (id) => document.getElementById(id);
   const send = (message) => parent.postMessage(message, "*");
@@ -251,10 +252,11 @@
   function renderRepeaterFields() {
     $("repeaterFields").textContent = "";
     if (!selection || selection.type !== "board") return;
+    if (repeaterDrafts.get(selection.id) === (selection.repeater?.path || "")) repeaterDrafts.delete(selection.id);
     const fields = (selection.repeaterFields || []).filter((field) => field.path);
     $("repeaterFields").textContent = fields.length
-      ? `Bound fields: ${fields.map((field) => `${field.name} (${field.path})`).join(", ")}`
-      : "No bound text layers inside this board yet. Bind text layers inside it first.";
+      ? `Bound fields in the template layers: ${fields.map((field) => `${field.name} (${field.path})`).join(", ")}`
+      : "No bound text layers among this board's direct child layers yet. Bind their text layers first.";
     $("removeRepeater").disabled = !selection.repeater;
     $("applyRepeater").disabled = !source || !$("repeaterPath").value.trim();
   }
@@ -687,32 +689,40 @@
   $("annotationRemark").oninput = renderPreview;
   $("cancelAnnotation").onclick = resetAnnotationForm;
   $("repeaterPath").oninput = () => {
+    if (selection?.type === "board") repeaterDrafts.set(selection.id, $("repeaterPath").value);
     $("applyRepeater").disabled = !source || !$("repeaterPath").value.trim();
   };
+  function computeRepeaterInstances(xml, path, fields) {
+    const { doc, nodes } = resolveNodeSet(xml, path);
+    return nodes.map((node) => {
+      const values = {};
+      for (const field of fields) {
+        try {
+          values[field.id] = resolveNode(doc, node, field.path);
+        } catch {
+          values[field.id] = "";
+        }
+      }
+      return { values };
+    });
+  }
+
   $("applyRepeater").onclick = () => {
     if (!selection || selection.type !== "board" || !source) return;
     const path = $("repeaterPath").value.trim();
     if (!path) return setStatus("Repeater XPath is required.", "error");
     try {
-      const { doc, nodes } = resolveNodeSet(source.characters, path);
       const fields = (selection.repeaterFields || []).filter((field) => field.path);
-      const instances = nodes.map((node) => {
-        const values = {};
-        for (const field of fields) {
-          try {
-            values[field.id] = resolveNode(doc, node, field.path);
-          } catch {
-            values[field.id] = "";
-          }
-        }
-        return { values };
-      });
+      const instances = computeRepeaterInstances(source.characters, path, fields);
       send({ type: "apply-repeater", targetId: selection.id, fileId, pageId, sourceId: source.id, xml: source.characters, path, instances });
     } catch (err) {
       setStatus(err.message || String(err), "error");
     }
   };
-  $("removeRepeater").onclick = () => send({ type: "remove-repeater", targetId: selection?.id, fileId, pageId });
+  $("removeRepeater").onclick = () => {
+    if (selection?.id) repeaterDrafts.delete(selection.id);
+    send({ type: "remove-repeater", targetId: selection?.id, fileId, pageId });
+  };
   $("saveAnnotation").onclick = () => {
     if (!selection || selection.type === "text" || !source) return;
     const path = $("path").value.trim();
@@ -761,7 +771,8 @@
         $("path").value = msg.shape?.path || "";
       }
       if (changedLayer) {
-        $("repeaterPath").value = msg.shape?.repeater?.path || "";
+        const draft = msg.shape?.type === "board" ? repeaterDrafts.get(msg.shape.id) : undefined;
+        $("repeaterPath").value = draft !== undefined ? draft : (msg.shape?.repeater?.path || "");
       }
       selection = msg.shape;
       source = msg.source;
@@ -807,6 +818,19 @@
         }
       });
       send({ type: "apply-values", results });
+
+      for (const repeater of msg.repeaters || []) {
+        if (repeater.xml == null) {
+          setStatus("A repeater's XML source was not found and was skipped.", "error");
+          continue;
+        }
+        try {
+          const instances = computeRepeaterInstances(repeater.xml, repeater.path, repeater.fields);
+          send({ type: "apply-repeater", targetId: repeater.containerId, fileId, pageId, sourceId: repeater.sourceId, xml: repeater.xml, path: repeater.path, instances });
+        } catch (err) {
+          setStatus(err.message || String(err), "error");
+        }
+      }
     }
 
     if (msg.type === "refresh-result") {

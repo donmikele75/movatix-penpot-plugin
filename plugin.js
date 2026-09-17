@@ -69,11 +69,12 @@ function readAnnotations(shape) {
   return data.entries;
 }
 
-function collectTextDescendants(shape, list = []) {
-  for (const child of shape.children || []) {
-    if (child.type === "text") list.push(child);
-    else collectTextDescendants(child, list);
+function collectTextLayers(shape, list = []) {
+  if (shape.type === "text") {
+    list.push(shape);
+    return list;
   }
+  for (const child of shape.children || []) collectTextLayers(child, list);
   return list;
 }
 
@@ -95,6 +96,11 @@ function readRepeaterInstanceIds(shape) {
     throw new Error("Unsupported repeater instance list. Existing data was not changed.");
   }
   return ids;
+}
+
+function templateChildrenOf(container) {
+  const instanceIds = new Set(readRepeaterInstanceIds(container));
+  return (container.children || []).filter((child) => !instanceIds.has(child.id));
 }
 
 function findAncestorRepeater(shape) {
@@ -120,7 +126,7 @@ function sendSelection(preferredSourceId) {
     annotations = shape?.type !== "text" ? readAnnotations(shape) : [];
     if (shape?.type === "board") {
       repeater = readRepeater(shape);
-      repeaterFields = collectTextDescendants(shape).map((child) => ({ id: child.id, name: child.name, path: child.getPluginData(PATH_KEY) || "" }));
+      repeaterFields = templateChildrenOf(shape).flatMap((child) => collectTextLayers(child)).map((child) => ({ id: child.id, name: child.name, path: child.getPluginData(PATH_KEY) || "" }));
     }
     if (shape?.type === "text") {
       ancestorRepeater = findAncestorRepeater(shape);
@@ -181,7 +187,26 @@ function refreshAll() {
     });
   }
 
-  penpot.ui.sendMessage({ type: "refresh-data", items });
+  const repeaters = [];
+  const page = penpot.currentPage;
+  if (page) {
+    for (const container of page.findShapes({ type: "board" })) {
+      let repeater;
+      try {
+        repeater = readRepeater(container);
+      } catch {
+        continue;
+      }
+      if (!repeater) continue;
+      const source = getSource(repeater.sourceId);
+      const fields = templateChildrenOf(container).flatMap((child) => collectTextLayers(child))
+        .filter((field) => field.getPluginData(PATH_KEY))
+        .map((field) => ({ id: field.id, path: field.getPluginData(PATH_KEY) }));
+      repeaters.push({ containerId: container.id, sourceId: repeater.sourceId, path: repeater.path, xml: source?.characters ?? null, fields });
+    }
+  }
+
+  penpot.ui.sendMessage({ type: "refresh-data", items, repeaters });
 }
 
 penpot.on("selectionchange", sendSelection);
@@ -295,11 +320,11 @@ function handleMessage(message) {
   }
 
   if (message.type === "apply-repeater") {
-    const target = getSelectedShape();
+    const target = penpot.currentPage?.getShapeById(message.targetId);
     const fail = (text) => penpot.ui.sendMessage({ type: "status", level: "error", text });
-    if (!target || target.type !== "board" || target.id !== message.targetId ||
+    if (!target || target.type !== "board" ||
       !penpot.currentFile || message.fileId !== penpot.currentFile.id || message.pageId !== penpot.currentPage?.id) {
-      fail("Select the original board and try again.");
+      fail("Select the repeater container and try again.");
       return;
     }
     const source = getSource(message.sourceId);
@@ -317,25 +342,38 @@ function handleMessage(message) {
     }
     const page = penpot.currentPage;
     if (!page) return;
+
+    const templateChildren = templateChildrenOf(target);
+    if (!templateChildren.length) {
+      fail("The repeater container has no child layers to repeat.");
+      return;
+    }
     for (const id of readRepeaterInstanceIds(target)) page.getShapeById(id)?.remove();
 
-    const fields = collectTextDescendants(target);
+    const top = Math.min(...templateChildren.map((child) => child.y));
+    const bottom = Math.max(...templateChildren.map((child) => child.y + child.height));
+    const rowHeight = bottom - top;
     const createdIds = [];
     message.instances.forEach((instance, index) => {
       if (index === 0) {
-        for (const field of fields) {
+        for (const field of templateChildren.flatMap((child) => collectTextLayers(child))) {
           if (field.getPluginData(PATH_KEY) && instance.values[field.id] !== undefined) field.characters = instance.values[field.id];
         }
         return;
       }
-      const clone = target.clone();
-      clone.x = target.x;
-      clone.y = target.y + index * (target.height + REPEATER_GAP);
-      const cloneFields = collectTextDescendants(clone);
-      fields.forEach((field, fieldIndex) => {
-        if (field.getPluginData(PATH_KEY) && instance.values[field.id] !== undefined) cloneFields[fieldIndex].characters = instance.values[field.id];
-      });
-      createdIds.push(clone.id);
+      const offsetY = index * (rowHeight + REPEATER_GAP);
+      for (const child of templateChildren) {
+        const clone = child.clone();
+        clone.x = child.x;
+        clone.y = child.y + offsetY;
+        target.appendChild(clone);
+        const templateFields = collectTextLayers(child);
+        const cloneFields = collectTextLayers(clone);
+        templateFields.forEach((field, fieldIndex) => {
+          if (field.getPluginData(PATH_KEY) && instance.values[field.id] !== undefined) cloneFields[fieldIndex].characters = instance.values[field.id];
+        });
+        createdIds.push(clone.id);
+      }
     });
 
     target.setPluginData(REPEATER_KEY, JSON.stringify({ version: 1, sourceId: source.id, path: message.path.trim() }));

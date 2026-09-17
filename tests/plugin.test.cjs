@@ -172,17 +172,7 @@ test("XPath picker preserves a reopened tree and handles Escape without changing
 });
 
 function createHarness(options = {}) {
-  function createShape(id, characters, data = {}) {
-    return {
-      id, name: id, type: "text", characters,
-      getPluginData: (key) => data[key] || "",
-      setPluginData: (key, value) => { data[key] = value; },
-    };
-  }
-  const source = createShape("source", "<data><name>Alpha</name></data>", options.sourceData);
-  const otherSource = createShape("other-source", "<data><name>Beta</name></data>");
-  const target = createShape("target", "Original");
-  const shapes = new Map([source, otherSource, target].map((shape) => [shape.id, shape]));
+  const shapes = new Map();
   let cloneCounter = 0;
   function cloneShape(shape) {
     cloneCounter += 1;
@@ -194,12 +184,32 @@ function createHarness(options = {}) {
       children: shape.children ? shape.children.map((child) => cloneShape(child)) : undefined,
       getPluginData: (key) => data[key] || "",
       setPluginData: (key, value) => { data[key] = value; },
-      remove: () => shapes.delete(id),
+      remove: () => {
+        shapes.delete(id);
+        if (clone.parent?.children) {
+          const index = clone.parent.children.indexOf(clone);
+          if (index !== -1) clone.parent.children.splice(index, 1);
+        }
+      },
     };
     clone.clone = () => cloneShape(clone);
     shapes.set(id, clone);
     return clone;
   }
+  function createShape(id, characters, data = {}) {
+    const shape = {
+      id, name: id, type: "text", characters,
+      getPluginData: (key) => data[key] || "",
+      setPluginData: (key, value) => { data[key] = value; },
+      remove: () => shapes.delete(id),
+    };
+    shape.clone = () => cloneShape(shape);
+    shapes.set(id, shape);
+    return shape;
+  }
+  const source = createShape("source", "<data><name>Alpha</name></data>", options.sourceData);
+  const otherSource = createShape("other-source", "<data><name>Beta</name></data>");
+  const target = createShape("target", "Original");
   function createBoard(id, children, position = { x: 0, y: 0, height: 100 }) {
     const data = {};
     const board = { id, name: id, type: "board", children, ...position };
@@ -207,6 +217,11 @@ function createHarness(options = {}) {
     board.setPluginData = (key, value) => { data[key] = value; };
     board.remove = () => shapes.delete(id);
     board.clone = () => cloneShape(board);
+    board.appendChild = (child) => {
+      board.children.push(child);
+      child.parent = board;
+      shapes.set(child.id, child);
+    };
     const registerTree = (shape) => {
       shapes.set(shape.id, shape);
       for (const child of shape.children || []) {
@@ -513,50 +528,71 @@ test("remark updates reject empty values, stale context, unknown ids and text la
 
 function createRepeaterHarness() {
   const xml = "<data><items><item><name>First</name></item><item><name>Second</name></item><item><name>Third</name></item></items></data>";
-  let board;
+  let container;
   const harness = createHarness({
     initialize: ({ source, createBoard, createShape, penpot }) => {
       source.characters = xml;
       const label = createShape("label", "Template", { "xml-binding-source": "source", "xml-binding-path": "./name" });
-      board = createBoard("board", [label], { x: 10, y: 20, height: 100 });
-      penpot.selection = [board];
+      label.x = 0; label.y = 0; label.height = 20;
+      const sub = createShape("sub", "Template", { "xml-binding-source": "source", "xml-binding-path": "./name" });
+      const note = createBoard("note", [sub], { x: 0, y: 30, height: 40 });
+      container = createBoard("board", [label, note], { x: 10, y: 20, height: 100 });
+      penpot.selection = [container];
     },
   });
   const apply = (overrides = {}) => harness.receive({
     type: "apply-repeater", targetId: "board", fileId: "file", pageId: "page",
     sourceId: "source", xml, path: "/data/items/item",
-    instances: [{ values: { label: "First" } }, { values: { label: "Second" } }, { values: { label: "Third" } }],
+    instances: [
+      { values: { label: "First", sub: "First" } },
+      { values: { label: "Second", sub: "Second" } },
+      { values: { label: "Third", sub: "Third" } },
+    ],
     ...overrides,
   });
-  return { ...harness, board: () => board, xml, apply };
+  return { ...harness, board: () => container, xml, apply };
 }
 
-test("apply-repeater fills the template and clones a board per matched node", () => {
+test("apply-repeater clones every direct child of the container as a group per matched node", () => {
   const harness = createRepeaterHarness();
   harness.apply();
-  const board = harness.board();
+  const container = harness.board();
   assert.equal(harness.shapes.get("label").characters, "First");
-  const instanceIds = JSON.parse(board.getPluginData("xml-binding-repeater-instances"));
-  assert.equal(instanceIds.length, 2);
-  const [clone1, clone2] = instanceIds.map((id) => harness.shapes.get(id));
-  assert.equal(clone1.children[0].characters, "Second");
-  assert.equal(clone2.children[0].characters, "Third");
-  assert.equal(clone1.x, board.x);
-  assert.equal(clone1.y, board.y + 1 * (board.height + 24));
-  assert.equal(clone2.y, board.y + 2 * (board.height + 24));
-  assert.deepEqual(JSON.parse(board.getPluginData("xml-binding-repeater")), { version: 1, sourceId: "source", path: "/data/items/item" });
+  assert.equal(harness.shapes.get("sub").characters, "First");
+
+  const instanceIds = JSON.parse(container.getPluginData("xml-binding-repeater-instances"));
+  assert.equal(instanceIds.length, 4);
+
+  const noteClones = container.children.filter((child) => child.type === "board" && child.id !== "note").sort((a, b) => a.y - b.y);
+  const labelClones = container.children.filter((child) => child.type === "text" && child.id !== "label").sort((a, b) => a.y - b.y);
+  assert.equal(noteClones.length, 2);
+  assert.equal(labelClones.length, 2);
+
+  const rowHeight = 70; // combined bounds across label (0..20) and note (30..70)
+  assert.equal(labelClones[0].y, 0 + 1 * (rowHeight + 24));
+  assert.equal(labelClones[1].y, 0 + 2 * (rowHeight + 24));
+  assert.equal(noteClones[0].y, 30 + 1 * (rowHeight + 24));
+  assert.equal(noteClones[1].y, 30 + 2 * (rowHeight + 24));
+  assert.equal(labelClones[0].characters, "Second");
+  assert.equal(labelClones[1].characters, "Third");
+  assert.equal(noteClones[0].children[0].characters, "Second");
+  assert.equal(noteClones[1].children[0].characters, "Third");
+
+  assert.deepEqual(JSON.parse(container.getPluginData("xml-binding-repeater")), { version: 1, sourceId: "source", path: "/data/items/item" });
   assert.equal(harness.messages.at(-1).shape.repeater.path, "/data/items/item");
-  assert.equal(harness.messages.at(-1).shape.repeaterFields[0].path, "./name");
+  assert.deepEqual(harness.messages.at(-1).shape.repeaterFields.map((field) => field.id), ["label", "sub"]);
 });
 
 test("re-applying a repeater removes previously generated instances before creating new ones", () => {
   const harness = createRepeaterHarness();
   harness.apply();
   const firstRoundIds = JSON.parse(harness.board().getPluginData("xml-binding-repeater-instances"));
-  harness.apply({ instances: [{ values: { label: "Only" } }] });
+  harness.apply({ instances: [{ values: { label: "Only", sub: "Only" } }] });
   for (const id of firstRoundIds) assert.equal(harness.shapes.has(id), false);
   assert.equal(JSON.parse(harness.board().getPluginData("xml-binding-repeater-instances")).length, 0);
+  assert.equal(harness.board().children.length, 2);
   assert.equal(harness.shapes.get("label").characters, "Only");
+  assert.equal(harness.shapes.get("sub").characters, "Only");
 });
 
 test("apply-repeater rejects wrong target, stale XML, missing path and non-array instances", () => {
@@ -568,9 +604,14 @@ test("apply-repeater rejects wrong target, stale XML, missing path and non-array
     harness.apply(overrides);
     assert.equal(harness.board().getPluginData("xml-binding-repeater"), "");
   }
+});
+
+test("apply-repeater works on a container that is not the current selection (bulk refresh)", () => {
+  const harness = createRepeaterHarness();
   harness.penpot.selection = [harness.target];
   harness.apply();
-  assert.equal(harness.board().getPluginData("xml-binding-repeater"), "");
+  assert.equal(JSON.parse(harness.board().getPluginData("xml-binding-repeater")).path, "/data/items/item");
+  assert.equal(harness.shapes.get("label").characters, "First");
 });
 
 test("remove-repeater clears the configuration and deletes generated clones", () => {
@@ -581,6 +622,7 @@ test("remove-repeater clears the configuration and deletes generated clones", ()
   assert.equal(harness.board().getPluginData("xml-binding-repeater"), "");
   assert.equal(harness.board().getPluginData("xml-binding-repeater-instances"), "");
   for (const id of instanceIds) assert.equal(harness.shapes.has(id), false);
+  assert.equal(harness.board().children.length, 2);
   assert.equal(harness.shapes.get("label").characters, "First");
 });
 
@@ -592,11 +634,34 @@ test("corrupt repeater configuration is reported and never overwritten", () => {
   assert.equal(harness.board().getPluginData("xml-binding-repeater"), '{"version":2}');
 });
 
-test("a text layer inside a repeater board reports the ancestor repeater config for context-aware preview", () => {
+test("refresh-all includes repeater containers with template fields for regeneration", () => {
+  const harness = createRepeaterHarness();
+  harness.apply();
+  harness.receive({ type: "refresh-all" });
+  const message = harness.messages.at(-1);
+  assert.equal(message.type, "refresh-data");
+  const repeater = message.repeaters.find((entry) => entry.containerId === "board");
+  assert.ok(repeater);
+  assert.equal(repeater.sourceId, "source");
+  assert.equal(repeater.path, "/data/items/item");
+  assert.equal(repeater.xml, harness.xml);
+  assert.deepEqual(repeater.fields.map((field) => field.id), ["label", "sub"]);
+});
+
+test("a text layer inside a repeater container reports the ancestor repeater config for context-aware preview", () => {
   const harness = createRepeaterHarness();
   harness.apply();
   const label = harness.shapes.get("label");
   harness.penpot.selection = [label];
+  harness.listeners.selectionchange();
+  assert.equal(JSON.stringify(harness.messages.at(-1).shape.ancestorRepeater), JSON.stringify({ version: 1, sourceId: "source", path: "/data/items/item" }));
+});
+
+test("a text layer nested two levels below the repeater container also reports the ancestor repeater config", () => {
+  const harness = createRepeaterHarness();
+  harness.apply();
+  const sub = harness.shapes.get("sub");
+  harness.penpot.selection = [sub];
   harness.listeners.selectionchange();
   assert.equal(JSON.stringify(harness.messages.at(-1).shape.ancestorRepeater), JSON.stringify({ version: 1, sourceId: "source", path: "/data/items/item" }));
 });
