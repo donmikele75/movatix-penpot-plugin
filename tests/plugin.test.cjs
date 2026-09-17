@@ -73,6 +73,37 @@ test("pretty print preserves mixed content, significant spaces, CDATA and commen
   assert.equal(context.prettyPrintXml(formatted), formatted);
 });
 
+test("HTML DOM extraction preserves line breaks and ignores executable content", () => {
+  const text = (value) => ({ nodeType: 3, textContent: value });
+  const element = (tagName, ...childNodes) => ({ nodeType: 1, tagName, childNodes });
+  let nodes = [];
+  const context = {
+    document: {
+      getElementById: () => ({}),
+      createElement: (tagName) => {
+        assert.equal(tagName, "template");
+        return { content: { childNodes: nodes, childElementCount: nodes.filter((node) => node.nodeType === 1).length } };
+      },
+    },
+    window: { addEventListener: () => {} },
+    parent: { postMessage: () => {} },
+  };
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  vm.runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/i)[1], context);
+  nodes = [text("(new)"), element("BR"), text("1 order")];
+  assert.equal(context.htmlToText("(new)<br/>1 order"), "(new)\n1 order");
+  nodes = [element("P", text("First "), element("B", text("bold"))), element("P", text("Second & third"))];
+  assert.equal(context.htmlToText("<p>First <b>bold</b></p><p>Second &amp; third</p>"), "First bold\nSecond & third");
+  nodes = [text("First"), element("BR"), element("BR"), text("Last")];
+  assert.equal(context.htmlToText("First<br><br>Last"), "First\n\nLast");
+  nodes = [element("SCRIPT", text("run()")), element("STYLE", text("body{}")), { nodeType: 8, textContent: "comment" }, element("SPAN", text("Safe"))];
+  assert.equal(context.htmlToText("<script>run()</script><style>body{}</style><span>Safe</span>"), "Safe");
+  nodes = [text("  2 < 3 & 4 > 1  ")];
+  assert.equal(context.htmlToText("  2 < 3 & 4 > 1  "), "  2 < 3 & 4 > 1  ");
+  nodes = [];
+  assert.equal(context.htmlToText(""), "");
+});
+
 function createHarness(options = {}) {
   function createShape(id, characters, data = {}) {
     return {

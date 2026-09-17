@@ -40,6 +40,8 @@ Node selections use the first match in document order, trimming surrounding whit
 
 Use standard XPath paths from the document root. Legacy root-relative shortcuts such as `name` for `<product><name>...</name></product>` must be changed to `/product/name`.
 
+HTML markup in textual XPath results is converted to plain text for the preview, applying a binding, and refreshing bindings. For example, `<description>(new)&lt;br/&gt;1 order</description>` renders as two lines. Inline tags are removed, `<br>` and block elements such as paragraphs create line breaks, and HTML entities inside markup are decoded. Script/style contents are ignored; the HTML is parsed in an inert template and never inserted into the page. XML source data remains unchanged. Numeric and boolean XPath results are unaffected.
+
 ## XML text editing
 
 **Edit XML source** opens a larger plain-text editor with XML syntax highlighting, editable source name, line/column position, a U+200B character count, UTF-8 file import and **Validate XML**. Invalid XML cannot be saved. Parser diagnostics include the browser's error location. **Clean tag separators** explicitly repairs the tag-boundary characters described below; it does not silently change text values.

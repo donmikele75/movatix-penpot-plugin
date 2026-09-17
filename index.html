@@ -194,6 +194,34 @@
     return doc;
   }
 
+  function htmlToText(value) {
+    const template = document.createElement("template");
+    template.innerHTML = value;
+    if (!template.content.childElementCount) return value;
+
+    const blocks = new Set(["ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "DIV", "DL", "DT", "DD", "FIGURE", "FIGCAPTION", "FOOTER", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "LI", "MAIN", "OL", "P", "PRE", "SECTION", "TABLE", "TR", "UL"]);
+    const ignored = new Set(["SCRIPT", "STYLE", "TEMPLATE", "IFRAME", "OBJECT"]);
+    let text = "";
+    const lineBreak = () => { if (text && !text.endsWith("\n")) text += "\n"; };
+    const visit = (node) => {
+      if (node.nodeType === 3) {
+        text += node.textContent;
+        return;
+      }
+      if (node.nodeType !== 1 || ignored.has(node.tagName)) return;
+      if (node.tagName === "BR") {
+        text += "\n";
+        return;
+      }
+      const block = blocks.has(node.tagName);
+      if (block) lineBreak();
+      for (const child of node.childNodes) visit(child);
+      if (block) lineBreak();
+    };
+    for (const child of template.content.childNodes) visit(child);
+    return text.trim();
+  }
+
   function resolveXml(xml, path) {
     if (!xml || !path) throw new Error("Missing XML or path");
     const doc = parseXml(normalizeXmlMarkup(xml));
@@ -205,12 +233,12 @@
       throw new Error("Invalid XPath or unknown namespace prefix");
     }
 
-    if (result.resultType === XPathResult.STRING_TYPE) return result.stringValue;
+    if (result.resultType === XPathResult.STRING_TYPE) return htmlToText(result.stringValue);
     if (result.resultType === XPathResult.NUMBER_TYPE) return String(result.numberValue);
     if (result.resultType === XPathResult.BOOLEAN_TYPE) return String(result.booleanValue);
     const node = doc.evaluate(path, doc, doc.createNSResolver(doc.documentElement), XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
     if (!node) throw new Error("XPath has no matches");
-    return node.textContent?.trim() ?? "";
+    return htmlToText(node.textContent?.trim() ?? "");
   }
 
   function editorDiagnostic(text, level = "muted") {
