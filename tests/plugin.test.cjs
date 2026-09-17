@@ -448,3 +448,31 @@ test("XPath remarks reject empty values, stale context and conflicting writes", 
   harness.receive({ ...message, originalAnnotations: '{"version":2,"entries":[]}' });
   assert.equal(harness.target.getPluginData("xml-binding-annotations"), '{"version":2,"entries":[]}');
 });
+
+test("a saved remark can be updated in place without changing its XPath or source", () => {
+  const harness = createHarness({ initialize: ({ target }) => { target.type = "rect"; } });
+  harness.receive({ type: "save-annotation", targetId: "target", fileId: "file", pageId: "page", sourceId: "source", xml: harness.source.characters, path: "/data/name", remark: "Initial", originalAnnotations: "" });
+  const stored = () => JSON.parse(harness.target.getPluginData("xml-binding-annotations"));
+  const id = stored().entries[0].id;
+  harness.receive({ type: "update-annotation-remark", targetId: "target", fileId: "file", pageId: "page", annotationId: id, remark: " Updated remark ", originalAnnotations: harness.target.getPluginData("xml-binding-annotations") });
+  const entry = stored().entries[0];
+  assert.equal(entry.remark, "Updated remark");
+  assert.equal(entry.path, "/data/name");
+  assert.equal(entry.sourceId, "source");
+  assert.equal(harness.messages.at(-1).shape.annotations[0].remark, "Updated remark");
+});
+
+test("remark updates reject empty values, stale context, unknown ids and text layers", () => {
+  const harness = createHarness({ initialize: ({ target }) => { target.type = "rect"; } });
+  harness.receive({ type: "save-annotation", targetId: "target", fileId: "file", pageId: "page", sourceId: "source", xml: harness.source.characters, path: "/data/name", remark: "Initial", originalAnnotations: "" });
+  const snapshot = harness.target.getPluginData("xml-binding-annotations");
+  const id = JSON.parse(snapshot).entries[0].id;
+  const message = { type: "update-annotation-remark", targetId: "target", fileId: "file", pageId: "page", annotationId: id, remark: "Changed", originalAnnotations: snapshot };
+  for (const override of [{ remark: " " }, { annotationId: "missing" }, { targetId: "other" }, { fileId: "other" }, { pageId: "other" }, { originalAnnotations: "stale" }]) {
+    harness.receive({ ...message, ...override });
+    assert.equal(harness.target.getPluginData("xml-binding-annotations"), snapshot);
+  }
+  harness.target.type = "text";
+  harness.receive(message);
+  assert.equal(harness.target.getPluginData("xml-binding-annotations"), snapshot);
+});

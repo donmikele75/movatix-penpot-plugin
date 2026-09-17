@@ -7,7 +7,6 @@
   <style>
     :root { font-family: Inter, system-ui, sans-serif; color-scheme: light dark; }
     body { margin: 0; padding: 16px; font-size: 13px; }
-    h1 { margin: 0 0 14px; font-size: 16px; }
     section { border-bottom: 1px solid rgba(127,127,127,.35); padding-bottom: 14px; margin-bottom: 14px; }
     #sourceName, #targetName, #status, #valuePreview { overflow-wrap: anywhere; }
     #sourceName, #targetName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 18px; height: 18px; }
@@ -75,25 +74,27 @@
     .picker-node:hover, .picker-node:focus-visible { background: rgba(40,130,180,.15); border-color: #258a9b; }
     #pickerTree > .picker-node, .picker-children > .picker-node { display: block; }
     #annotationRemark { min-height: 64px; font: inherit; }
-    #annotationList { margin-top: 12px; }
-    #annotationList details { border-top: 1px solid rgba(127,127,127,.3); padding-top: 8px; }
-    #annotationList summary, #annotationList p { overflow-wrap: anywhere; white-space: pre-wrap; }
+    #annotationList { margin-top: 8px; }
+    .annotation-entry { border-top: 1px solid rgba(127,127,127,.3); padding: 8px 0; }
+    .annotation-entry:first-child { border-top: none; padding-top: 0; }
+    .annotation-entry-header { display: flex; align-items: flex-start; gap: 6px; }
+    .annotation-path { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 11px; margin-top: 6px; }
+    .annotation-edit, .annotation-delete { flex: none; width: auto; padding: 4px 8px; font-size: 11px; }
+    .annotation-source { margin: 4px 0 0; overflow-wrap: anywhere; }
+    .annotation-remark { margin-top: 4px; min-height: 44px; font-size: 12px; }
   </style>
 </head>
 <body>
-  <h1>XPath Inspector</h1>
-
   <section>
-    <label>Layer name</label>
     <div id="targetName" class="muted">No single layer selected.</div>
+    <div id="annotationList"></div>
     <label for="path" style="margin-top:10px">XPath</label>
     <textarea id="path" spellcheck="false" disabled></textarea>
     <button id="pickXPath" style="margin-top:6px" disabled>Choose XML node</button>
     <label for="valuePreview" style="margin-top:10px">Value preview</label>
     <output id="valuePreview" class="muted" aria-live="polite"></output>
-    <div id="textBindingActions" class="row" style="margin-top:10px">
-      <button id="bind" class="primary" disabled>Apply binding</button>
-      <button id="unbind" disabled>Remove binding</button>
+    <div id="textBindingActions" style="margin-top:10px">
+      <button id="bind" class="primary" style="width:100%" disabled>Apply binding</button>
     </div>
     <div id="annotationControls" hidden>
       <label for="annotationRemark" style="margin-top:10px">Remark (required)</label>
@@ -102,11 +103,10 @@
         <button id="saveAnnotation" class="primary" disabled>Add XPath</button>
         <button id="cancelAnnotation">Clear</button>
       </div>
-      <div id="annotationList"></div>
     </div>
   </section>
 
-  <section>
+  <section id="sourceSection">
     <label for="sourceSelect">Document XML source</label>
     <select id="sourceSelect" disabled></select>
     <div id="sourceName" class="muted">No source selected.</div>
@@ -193,9 +193,9 @@
     $("targetName").title = selection?.id || "";
     $("path").disabled = !selection;
     $("newSource").disabled = !fileId;
-    $("unbind").disabled = !selection?.sourceId;
+    $("sourceSection").hidden = !!selection;
     const nonText = selection && selection.type !== "text";
-    $("textBindingActions").style.display = nonText ? "none" : "flex";
+    $("textBindingActions").style.display = nonText ? "none" : "block";
     $("annotationControls").hidden = !nonText;
     renderAnnotations();
     renderSource();
@@ -235,22 +235,44 @@
 
   function renderAnnotations() {
     $("annotationList").replaceChildren();
-    if (!selection || selection.type === "text") return;
+    if (!selection) return;
+    if (selection.type === "text") {
+      if (!selection.sourceId || !selection.path) return;
+      const item = document.createElement("div");
+      item.className = "annotation-entry";
+      const header = document.createElement("div");
+      header.className = "annotation-entry-header";
+      const path = document.createElement("code");
+      path.className = "annotation-path";
+      path.textContent = selection.path;
+      const remove = document.createElement("button");
+      remove.className = "annotation-delete";
+      remove.textContent = "\u{1F5D1}";
+      remove.title = "Remove binding";
+      remove.setAttribute("aria-label", `Remove binding ${selection.path}`);
+      remove.onclick = () => send({ type: "unbind", targetId: selection?.id });
+      header.append(path, remove);
+      const sourceName = document.createElement("p");
+      sourceName.className = "muted annotation-source";
+      sourceName.textContent = sourceOptions.find((option) => option.id === selection.sourceId)?.name || "XML source not found";
+      item.append(header, sourceName);
+      $("annotationList").append(item);
+      return;
+    }
     const entries = selection.annotations || [];
     if (!entries.length) $("annotationList").textContent = "No XPath entries.";
     for (const entry of entries) {
-      const item = document.createElement("details");
-      const summary = document.createElement("summary");
-      summary.textContent = entry.path;
-      const sourceName = document.createElement("p");
-      sourceName.className = "muted";
-      sourceName.textContent = sourceOptions.find((option) => option.id === entry.sourceId)?.name || "XML source not found";
-      const remark = document.createElement("p");
-      remark.textContent = entry.remark;
-      const actions = document.createElement("div");
-      actions.className = "row";
+      const item = document.createElement("div");
+      item.className = "annotation-entry";
+
+      const header = document.createElement("div");
+      header.className = "annotation-entry-header";
+      const path = document.createElement("code");
+      path.className = "annotation-path";
+      path.textContent = entry.path;
       const edit = document.createElement("button");
-      edit.textContent = "Edit entry";
+      edit.className = "annotation-edit";
+      edit.textContent = "Edit XPath";
       edit.onclick = () => {
         editingAnnotationId = entry.id;
         annotationsSnapshot = selection.annotationsRaw || "";
@@ -268,10 +290,34 @@
         $("annotationRemark").focus();
       };
       const remove = document.createElement("button");
-      remove.textContent = "Delete entry";
+      remove.className = "annotation-delete";
+      remove.textContent = "\u{1F5D1}";
+      remove.title = "Delete entry";
+      remove.setAttribute("aria-label", `Delete XPath ${entry.path}`);
       remove.onclick = () => send({ type: "delete-annotation", ...annotationContext(), annotationId: entry.id, originalAnnotations: selection.annotationsRaw || "" });
-      actions.append(edit, remove);
-      item.append(summary, sourceName, remark, actions);
+      header.append(path, edit, remove);
+
+      const sourceName = document.createElement("p");
+      sourceName.className = "muted annotation-source";
+      sourceName.textContent = sourceOptions.find((option) => option.id === entry.sourceId)?.name || "XML source not found";
+
+      const remark = document.createElement("textarea");
+      remark.className = "annotation-remark";
+      remark.value = entry.remark;
+      remark.rows = 2;
+      remark.setAttribute("aria-label", `Remark for ${entry.path}`);
+      remark.onblur = () => {
+        const value = remark.value.trim();
+        if (!value) {
+          remark.value = entry.remark;
+          setStatus("A remark is required for every XPath.", "error");
+          return;
+        }
+        if (value === entry.remark) return;
+        send({ type: "update-annotation-remark", ...annotationContext(), annotationId: entry.id, remark: value, originalAnnotations: selection.annotationsRaw || "" });
+      };
+
+      item.append(header, sourceName, remark);
       $("annotationList").append(item);
     }
   }
@@ -602,7 +648,6 @@
       setStatus(err.message || String(err), "error");
     }
   };
-  $("unbind").onclick = () => send({ type: "unbind", targetId: selection?.id });
   $("refresh").onclick = () => {
     setStatus("Refreshing…", "muted");
     send({ type: "refresh-all" });

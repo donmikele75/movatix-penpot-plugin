@@ -187,7 +187,7 @@ function handleMessage(message) {
     return;
   }
 
-  if (message.type === "save-annotation" || message.type === "delete-annotation") {
+  if (message.type === "save-annotation" || message.type === "delete-annotation" || message.type === "update-annotation-remark") {
     const target = getSelectedShape();
     const fail = (text) => penpot.ui.sendMessage({ type: "status", level: "error", text });
     if (!target || target.type === "text" || target.id !== message.targetId ||
@@ -208,6 +208,13 @@ function handleMessage(message) {
     if (message.type === "delete-annotation") {
       if (index === -1) return;
       entries.splice(index, 1);
+    } else if (message.type === "update-annotation-remark") {
+      if (index === -1) return;
+      if (typeof message.remark !== "string" || !message.remark.trim()) {
+        fail("A remark is required.");
+        return;
+      }
+      entries[index] = { ...entries[index], remark: message.remark.trim() };
     } else {
       const source = getSource(message.sourceId);
       if (!source || source.characters !== message.xml) {

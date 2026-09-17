@@ -14,22 +14,22 @@ A Penpot plugin that binds text layers to named XML sources stored in the docume
 ```
 
 2. Use **Pretty print** to indent the XML if needed, then click **Save source**.
-3. Select a target text layer and choose a source from **Document XML source**.
+3. Select a target text layer (or leave nothing selected) and choose a source from **Document XML source**. This section is only shown when no layer is selected; selecting a layer hides it and reuses the currently loaded source.
 4. Enter `/product/name` (or `/product/@id`), or click **Choose XML node** and select an element or attribute.
 5. Check the live value preview and click **Apply binding** to store the binding and update the text immediately.
 6. Edit the source through **Edit XML source**. Saving refreshes bindings on the current page by default; **Refresh all bindings** is also available separately.
 
 Bindings are stored on each target shape as Penpot plugin data, so they remain in the document.
 
-The inspector follows the selected text layer and shows its bound source, even when it differs from the default source. Choosing another source changes the preview and default for unbound layers; **Apply binding** commits the source change on the selected target. Unbound layers start with an empty XPath. Select exactly one text layer to edit a binding. **Remove binding** keeps its current text. **Reload** rereads the selection and source XML without discarding an unchanged layer's draft XPath.
+The inspector follows the selected text layer and shows its bound source, even when it differs from the default source. Choosing another source changes the preview and default for unbound layers; **Apply binding** commits the source change on the selected target. Unbound layers start with an empty XPath. Select exactly one text layer to edit a binding. A bound layer shows its XPath and source as a fixed entry above the XPath field; click its trash icon to remove the binding and keep the layer's current text. **Reload** rereads the selection and source XML without discarding an unchanged layer's draft XPath.
 
 The inspector is a separate plugin window, not an extension of Penpot's native Inspect sidebar. Sources are available across all pages of the current document and persist with the document, including for collaborators. **Refresh all bindings** updates targets on the current page only. Source changes are reread on selection changes, Reload, or Refresh all bindings; there is no background synchronization after the plugin closes.
 
 ## Non-text layers
 
-Select any single non-text layer (for example a rectangle, image, group or board) to manage multiple XPath entries. Enter a path or use **Choose XML node**, then enter a mandatory **Remark** and click **Add XPath**. Each entry stores its XML source, XPath and remark in the layer's plugin data. Expand an entry to see its remark and source, **Edit entry**, or **Delete entry**. Different entries can reference different document XML sources.
+Select any single non-text layer (for example a rectangle, image, group or board) to manage multiple XPath entries. Saved entries are always listed above the XPath field, are not collapsible, and each shows its path, source name and remark. Click the trash icon on an entry to delete it, edit its remark directly in its own text box (saved automatically once you leave the field), or click **Edit XPath** to load its path and remark into the form below for a full edit (including changing the XML source). To add a new entry, enter a path or use **Choose XML node**, then enter a mandatory **Remark** and click **Add XPath**. Each entry stores its XML source, XPath and remark in the layer's plugin data; different entries can reference different document XML sources.
 
-These entries are annotations only: they do not change the layer's appearance, and **Refresh all bindings** still updates text layers only. XPath syntax and results are checked in the preview before saving; blank remarks cannot be saved. Layer/file/page changes and conflicting writes are rejected. **Reload** on non-text layers discards the current draft and loads the latest entries; switching layers also discards an unsaved draft. Text layers retain their existing single binding and do not require remarks.
+These entries are annotations only: they do not change the layer's appearance, and **Refresh all bindings** still updates text layers only. XPath syntax and results are checked in the preview before saving; blank remarks cannot be saved or kept (an emptied remark reverts to its previous value). Layer/file/page changes and conflicting writes are rejected. **Reload** on non-text layers discards the current draft and loads the latest entries; switching layers also discards an unsaved draft. Text layers retain their existing single binding and do not require remarks.
 
 ## XPath picker
 
