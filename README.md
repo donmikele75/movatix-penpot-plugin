@@ -1,10 +1,10 @@
 # Penpot XPath Inspector
 
-A minimal Penpot plugin that binds text layers to XML stored in another Penpot text layer.
+A minimal Penpot plugin that binds text layers to XML attached to a source layer, with a dedicated plain-text XML editor.
 
 ## What it does
 
-1. Put XML into a normal Penpot text layer, for example:
+1. Create a normal Penpot text layer as the source anchor, or use an existing XML layer. Example XML for the editor:
 
 ```xml
 <product id="p1">
@@ -14,10 +14,10 @@ A minimal Penpot plugin that binds text layers to XML stored in another Penpot t
 ```
 
 2. Select that layer and click **Set selection as source**.
-3. Select another text layer.
-4. Enter `/product/name` (or `/product/@id`).
+3. Click **Edit XML source**, paste XML or import a UTF-8 XML file, then click **Save source**.
+4. Select another text layer and enter `/product/name` (or `/product/@id`).
 5. Check the live value preview and click **Apply binding** to store the binding and update the text immediately.
-6. Click **Refresh all bindings** whenever the XML changes.
+6. Edit the source through **Edit XML source**. Saving refreshes bindings on the current page by default; **Refresh all bindings** is also available separately.
 
 Bindings are stored on each target shape as Penpot plugin data, so they remain in the document.
 
@@ -41,6 +41,12 @@ Node selections use the first match in document order, trimming surrounding whit
 Use standard XPath paths from the document root. Legacy root-relative shortcuts such as `name` for `<product><name>...</name></product>` must be changed to `/product/name`.
 
 ## XML text editing
+
+**Edit XML source** opens a larger plain-text editor with line/column position, a U+200B character count, UTF-8 file import and **Validate XML**. Invalid XML cannot be saved. Parser diagnostics include the browser's error location. **Clean tag separators** explicitly repairs the tag-boundary characters described below; it does not silently change text values.
+
+The first successful save stores XML as plugin data (`xml-binding-xml`) on the existing source layer. The layer ID and existing bindings stay unchanged. From then on, preview, binding and refresh use this stored XML, not the layer's canvas text. The canvas text is left untouched and may therefore show old XML. Keep the source layer; deleting it breaks its bindings. Before the first save, existing sources continue reading their canvas text.
+
+An open editor stays attached to its original source when selection changes. Saving rejects a changed source snapshot or a different page/file and keeps the draft available. **Discard and close** discards unsaved edits; Escape does not discard a modified draft. Closing the entire plugin still loses unsaved edits.
 
 Text copied from or edited in rich-text environments may contain invisible U+200B (zero-width space) characters. The inspector tolerates these immediately after `</` in closing tags and between `/` and `>` in self-closing tags. This normalization is applied only to the parser input; it does not modify the source layer or the raw Source XML preview. Text values, attributes, comments, processing instructions, and CDATA are preserved. Other malformed XML still produces an error with the browser's parser details.
 

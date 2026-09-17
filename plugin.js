@@ -1,5 +1,10 @@
 const SOURCE_KEY = "xml-binding-source";
 const PATH_KEY = "xml-binding-path";
+const XML_KEY = "xml-binding-xml";
+
+function getSourceXml(shape) {
+  return shape.getPluginData(XML_KEY) || shape.characters || "";
+}
 
 penpot.ui.open("XPath Inspector", `index.html?refresh=${Date.now()}`, {
   width: 360,
@@ -18,7 +23,9 @@ function sendSelection() {
   const source = getSourceShape(sourceId);
   penpot.ui.sendMessage({
     type: "selection",
-    source: source ? { id: source.id, name: source.name, characters: source.characters ?? "" } : null,
+    pageId: penpot.currentPage?.id,
+    fileId: penpot.currentFile?.id,
+    source: source ? { id: source.id, name: source.name, characters: getSourceXml(source), storage: source.getPluginData(XML_KEY) ? "plugin" : "layer" } : null,
     shape: shape
       ? {
           id: shape.id,
@@ -56,7 +63,7 @@ function refreshAll() {
       targetName: shape.name,
       sourceId,
       path,
-      xml: source?.characters ?? null,
+      xml: source ? getSourceXml(source) : null,
     });
   }
 
@@ -76,6 +83,11 @@ penpot.ui.onMessage((message) => {
     return;
   }
 
+  if (message.type === "editor-size") {
+    penpot.ui.resize(message.expanded ? 640 : 360, message.expanded ? 680 : 560);
+    return;
+  }
+
   if (message.type === "mark-source") {
     const shape = getSelectedText();
     if (!shape) {
@@ -84,6 +96,31 @@ penpot.ui.onMessage((message) => {
     }
     penpot.currentFile?.setPluginData("xml-binding-default-source", shape.id);
     sendSelection();
+    return;
+  }
+
+  if (message.type === "save-source") {
+    const source = getSourceShape(message.sourceId);
+    const fail = (text) => penpot.ui.sendMessage({ type: "source-save-error", text });
+    if (!source || message.pageId !== penpot.currentPage?.id || message.fileId !== penpot.currentFile?.id) {
+      fail("The source page or file changed, or the source was deleted. Reopen the editor.");
+      return;
+    }
+    if (getSourceXml(source) !== message.originalXml) {
+      fail("The source changed since the editor was opened. Your draft has not been saved.");
+      return;
+    }
+    if (typeof message.xml !== "string" || !message.xml.trim()) {
+      fail("XML must not be empty.");
+      return;
+    }
+    try {
+      source.setPluginData(XML_KEY, message.xml);
+      penpot.ui.sendMessage({ type: "source-saved", sourceId: source.id });
+      sendSelection();
+    } catch (error) {
+      fail(error.message || String(error));
+    }
     return;
   }
 
@@ -99,7 +136,7 @@ penpot.ui.onMessage((message) => {
       return;
     }
 
-    if (target.id !== message.targetId || source.characters !== message.xml) {
+    if (target.id !== message.targetId || getSourceXml(source) !== message.xml) {
       penpot.ui.sendMessage({ type: "status", level: "error", text: "Selection or XML changed. Reload and apply again." });
       sendSelection();
       return;

@@ -29,6 +29,17 @@
     .ok { color: #2e9d5b; }
     .error { color: #d14b4b; }
     code { font-size: 11px; }
+    dialog { box-sizing: border-box; width: calc(100% - 24px); height: calc(100% - 24px); max-width: 900px; max-height: none; padding: 12px; border: 1px solid rgba(127,127,127,.5); border-radius: 6px; }
+    dialog::backdrop { background: rgba(0,0,0,.45); }
+    #sourceEditor[open] { display: flex; flex-direction: column; gap: 10px; }
+    #sourceEditor h2 { margin: 0; font-size: 16px; }
+    #editorSourceName { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-height: 18px; }
+    #xmlEditor { flex: 1; min-height: 100px; resize: none; font-size: 13px; line-height: 1.5; tab-size: 2; white-space: pre; }
+    .editor-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    #xmlImport { min-width: 0; max-width: 100%; }
+    #editorDiagnostic { max-height: 92px; min-height: 18px; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; }
+    #refreshAfterSave { width: auto; }
+    .check-label { font-weight: normal; margin: 0; }
   </style>
 </head>
 <body>
@@ -50,10 +61,12 @@
   <section>
     <label>XML source layer name</label>
     <div id="sourceName" class="muted">No source selected.</div>
+    <div id="sourceStorage" class="muted"></div>
     <div class="row" style="margin-top:8px">
       <button id="markSource" disabled>Set selection as source</button>
       <button id="reloadSource">Reload</button>
     </div>
+    <button id="editSource" class="primary" style="width:100%;margin-top:8px" disabled>Edit XML source</button>
     <details>
       <summary>Source XML</summary>
       <textarea id="xmlPreview" aria-label="Source XML" readonly></textarea>
@@ -63,9 +76,32 @@
   <button id="refresh" class="primary" style="width:100%">Refresh all bindings</button>
   <div id="status" class="muted" role="status"></div>
 
+  <dialog id="sourceEditor" aria-labelledby="editorTitle">
+    <h2 id="editorTitle">XML source editor</h2>
+    <div id="editorSourceName" class="muted"></div>
+    <label for="xmlImport">Import XML file</label>
+    <input id="xmlImport" type="file" accept=".xml,text/xml,application/xml" />
+    <div class="editor-tools">
+      <button id="validateXml">Validate XML</button>
+      <button id="cleanXml">Clean tag separators</button>
+    </div>
+    <textarea id="xmlEditor" aria-label="XML source code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off"></textarea>
+    <div id="editorPosition" class="muted"></div>
+    <div id="editorDiagnostic" role="status" aria-live="polite"></div>
+    <label class="check-label"><input type="checkbox" id="refreshAfterSave" checked /> Refresh bindings after saving</label>
+    <div class="row">
+      <button id="saveSource" class="primary">Save source</button>
+      <button id="closeEditor">Close</button>
+    </div>
+  </dialog>
+
 <script>
   let source = null;
   let selection = null;
+  let pageId = null;
+  let fileId = null;
+  let editorSession = null;
+  let savingSource = false;
 
   const $ = (id) => document.getElementById(id);
   const send = (message) => parent.postMessage(message, "*");
@@ -79,6 +115,8 @@
     $("sourceName").textContent = source ? source.name : selection?.sourceId ? "Bound source not found on this page." : "No source selected.";
     $("sourceName").title = source?.id || "";
     $("xmlPreview").value = source?.characters || "";
+    $("sourceStorage").textContent = source ? source.storage === "plugin" ? "Editor-managed XML" : "Canvas text" : "";
+    $("editSource").disabled = !source;
   }
 
   function renderSelection() {
@@ -108,17 +146,24 @@
   }
 
   function normalizeXmlMarkup(xml) {
-    return xml.replace(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<(?:"[^"]*"|'[^']*'|[^'">])*>/g, (markup) => {
+    return xml.replace(/\x3c!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<(?:"[^"]*"|'[^']*'|[^'">])*>/g, (markup) => {
       if (markup.startsWith("<!") || markup.startsWith("<?")) return markup;
       return markup.replace(/^<\/\u200b+/, "</").replace(/\/\u200b+>$/, "/>");
     });
   }
 
+  function parseXml(xml) {
+    if (!xml.trim()) throw new Error("XML must not be empty");
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    const parserError = doc.getElementsByTagNameNS("http://www.mozilla.org/newlayout/xml/parsererror.xml", "parsererror")[0]
+      || doc.getElementsByTagNameNS("http://www.w3.org/1999/xhtml", "parsererror")[0];
+    if (parserError) throw new Error(`Invalid XML: ${parserError.textContent?.trim() || "Parse error"}`);
+    return doc;
+  }
+
   function resolveXml(xml, path) {
     if (!xml || !path) throw new Error("Missing XML or path");
-    const doc = new DOMParser().parseFromString(normalizeXmlMarkup(xml), "application/xml");
-    const parserError = doc.querySelector("parsererror");
-    if (parserError) throw new Error(`Invalid XML: ${parserError.textContent?.trim() || "Parse error"}`);
+    const doc = parseXml(normalizeXmlMarkup(xml));
 
     let result;
     try {
@@ -134,6 +179,103 @@
     if (!node) throw new Error("XPath has no matches");
     return node.textContent?.trim() ?? "";
   }
+
+  function editorDiagnostic(text, level = "muted") {
+    $("editorDiagnostic").textContent = text;
+    $("editorDiagnostic").className = level;
+  }
+
+  function updateEditorState() {
+    const xml = $("xmlEditor").value;
+    const beforeCursor = xml.slice(0, $("xmlEditor").selectionStart);
+    const line = beforeCursor.split("\n").length;
+    const column = beforeCursor.length - beforeCursor.lastIndexOf("\n");
+    const invisibleCount = (xml.match(/\u200b/g) || []).length;
+    $("editorPosition").textContent = `Line ${line}, column ${column} | ${xml.split("\n").length} lines | ${invisibleCount} U+200B`;
+    const dirty = editorSession && xml !== editorSession.originalXml;
+    $("closeEditor").textContent = dirty ? "Discard and close" : "Close";
+    for (const id of ["xmlEditor", "xmlImport", "validateXml", "cleanXml", "closeEditor", "refreshAfterSave"]) $(id).disabled = savingSource;
+    $("saveSource").disabled = savingSource || !xml.trim();
+  }
+
+  function validateEditor() {
+    try {
+      parseXml($("xmlEditor").value);
+      editorDiagnostic("Valid XML", "ok");
+      return true;
+    } catch (error) {
+      editorDiagnostic(error.message || String(error), "error");
+      return false;
+    }
+  }
+
+  $("editSource").onclick = () => {
+    if (!source) return;
+    editorSession = { sourceId: source.id, originalXml: source.characters, pageId, fileId };
+    $("editorSourceName").textContent = source.name;
+    $("xmlEditor").value = source.characters;
+    $("xmlImport").value = "";
+    savingSource = false;
+    updateEditorState();
+    validateEditor();
+    $("sourceEditor").showModal();
+    send({ type: "editor-size", expanded: true });
+    $("xmlEditor").focus();
+  };
+  $("xmlEditor").oninput = () => {
+    editorDiagnostic("Unsaved changes");
+    updateEditorState();
+  };
+  $("xmlEditor").onkeyup = updateEditorState;
+  $("xmlEditor").onclick = updateEditorState;
+  $("validateXml").onclick = validateEditor;
+  $("cleanXml").onclick = () => {
+    const original = $("xmlEditor").value;
+    $("xmlEditor").value = normalizeXmlMarkup(original);
+    const removed = original.length - $("xmlEditor").value.length;
+    updateEditorState();
+    if (validateEditor()) editorDiagnostic(`Valid XML. Removed ${removed} tag separator characters.`, "ok");
+  };
+  $("xmlImport").onchange = async () => {
+    const file = $("xmlImport").files[0];
+    if (!file || !editorSession) return;
+    const session = editorSession;
+    const originalDraft = $("xmlEditor").value;
+    try {
+      const bytes = await file.arrayBuffer();
+      const xml = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      if (editorSession !== session || savingSource) return;
+      if ($("xmlEditor").value !== originalDraft) {
+        editorDiagnostic("Import cancelled: the draft changed while the file was loading.", "error");
+        return;
+      }
+      $("xmlEditor").value = xml;
+      updateEditorState();
+      validateEditor();
+    } catch (error) {
+      if (editorSession === session) editorDiagnostic(`Import failed (UTF-8 required): ${error.message || String(error)}`, "error");
+    }
+  };
+  $("saveSource").onclick = () => {
+    if (!editorSession || savingSource || !validateEditor()) return;
+    savingSource = true;
+    updateEditorState();
+    editorDiagnostic("Saving source...");
+    send({ type: "save-source", ...editorSession, xml: $("xmlEditor").value });
+  };
+  $("closeEditor").onclick = () => {
+    if (!savingSource) $("sourceEditor").close();
+  };
+  $("sourceEditor").oncancel = (event) => {
+    if (savingSource || (editorSession && $("xmlEditor").value !== editorSession.originalXml)) {
+      event.preventDefault();
+      if (!savingSource) editorDiagnostic("Unsaved changes", "error");
+    }
+  };
+  $("sourceEditor").onclose = () => {
+    editorSession = null;
+    send({ type: "editor-size", expanded: false });
+  };
 
   $("markSource").onclick = () => send({ type: "mark-source" });
   $("reloadSource").onclick = () => send({ type: "get-selection" });
@@ -160,6 +302,8 @@
     if (!msg || typeof msg !== "object") return;
 
     if (msg.type === "selection") {
+      pageId = msg.pageId;
+      fileId = msg.fileId;
       if (selection?.id !== msg.shape?.id || selection?.path !== msg.shape?.path) {
         $("path").value = msg.shape?.path || "";
       }
@@ -169,6 +313,19 @@
     }
 
     if (msg.type === "status") setStatus(msg.text, msg.level);
+
+    if (msg.type === "source-save-error" && editorSession) {
+      savingSource = false;
+      updateEditorState();
+      editorDiagnostic(msg.text, "error");
+    }
+
+    if (msg.type === "source-saved" && editorSession?.sourceId === msg.sourceId) {
+      savingSource = false;
+      $("sourceEditor").close();
+      setStatus("XML source saved in plugin data.", "ok");
+      if ($("refreshAfterSave").checked) send({ type: "refresh-all" });
+    }
 
     if (msg.type === "refresh-data") {
       const results = (msg.items || []).map((item) => {
