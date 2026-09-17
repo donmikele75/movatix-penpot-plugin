@@ -655,6 +655,7 @@ test("a text layer inside a repeater container reports the ancestor repeater con
   harness.penpot.selection = [label];
   harness.listeners.selectionchange();
   assert.equal(JSON.stringify(harness.messages.at(-1).shape.ancestorRepeater), JSON.stringify({ version: 1, sourceId: "source", path: "/data/items/item" }));
+  assert.equal(harness.messages.at(-1).shape.ancestorContainerId, "board");
 });
 
 test("a text layer nested two levels below the repeater container also reports the ancestor repeater config", () => {
@@ -670,4 +671,14 @@ test("a text layer outside any repeater board reports no ancestor repeater", () 
   const harness = createHarness({ initialize: ({ target }) => { target.type = "text"; } });
   harness.listeners.selectionchange();
   assert.equal(harness.messages.at(-1).shape.ancestorRepeater, null);
+  assert.equal(harness.messages.at(-1).shape.ancestorContainerId, null);
+});
+
+test("a text layer inside a not-yet-generated container reports the container id but no ancestor repeater", () => {
+  const harness = createRepeaterHarness();
+  const label = harness.shapes.get("label");
+  harness.penpot.selection = [label];
+  harness.listeners.selectionchange();
+  assert.equal(harness.messages.at(-1).shape.ancestorRepeater, null);
+  assert.equal(harness.messages.at(-1).shape.ancestorContainerId, "board");
 });

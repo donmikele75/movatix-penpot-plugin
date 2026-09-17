@@ -115,12 +115,22 @@ function findAncestorRepeater(shape) {
   return null;
 }
 
+function findAncestorContainerId(shape) {
+  let node = shape?.parent || null;
+  while (node) {
+    if (node.type === "board") return node.id;
+    node = node.parent || null;
+  }
+  return null;
+}
+
 function sendSelection(preferredSourceId) {
   const shape = getSelectedShape();
   let annotations;
   let repeater = null;
   let repeaterFields = [];
   let ancestorRepeater = null;
+  let ancestorContainerId = null;
   try {
     migrateSources();
     annotations = shape?.type !== "text" ? readAnnotations(shape) : [];
@@ -130,6 +140,7 @@ function sendSelection(preferredSourceId) {
     }
     if (shape?.type === "text") {
       ancestorRepeater = findAncestorRepeater(shape);
+      ancestorContainerId = findAncestorContainerId(shape);
     }
   } catch (error) {
     penpot.ui.sendMessage({ type: "status", level: "error", text: error.message || String(error) });
@@ -153,6 +164,7 @@ function sendSelection(preferredSourceId) {
           repeater,
           repeaterFields,
           ancestorRepeater,
+          ancestorContainerId,
           characters: shape.characters ?? "",
           sourceId: shape.getPluginData(SOURCE_KEY) || "",
           path: shape.getPluginData(PATH_KEY) || "",

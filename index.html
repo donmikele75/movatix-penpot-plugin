@@ -110,9 +110,9 @@
     <div id="repeaterControls" hidden>
       <label for="repeaterPath" style="margin-top:10px">Repeater container: XPath (node-set)</label>
       <textarea id="repeaterPath" spellcheck="false"></textarea>
+      <div class="muted" style="margin-top:4px">Instances are generated automatically as you type.</div>
       <div id="repeaterFields" class="muted"></div>
       <div class="row" style="margin-top:8px">
-        <button id="applyRepeater" class="primary" disabled>Generate instances</button>
         <button id="removeRepeater" disabled>Remove repeater</button>
       </div>
     </div>
@@ -183,9 +183,17 @@
   let annotationsSnapshot = "";
   let sourceOptions = [];
   const repeaterDrafts = new Map();
+  let repeaterApplyTimer = null;
 
   const $ = (id) => document.getElementById(id);
   const send = (message) => parent.postMessage(message, "*");
+
+  function effectiveAncestorRepeater() {
+    if (selection?.type !== "text") return null;
+    if (selection.ancestorRepeater) return selection.ancestorRepeater;
+    const draftPath = selection.ancestorContainerId ? repeaterDrafts.get(selection.ancestorContainerId) : undefined;
+    return draftPath ? { path: draftPath } : null;
+  }
 
   function setStatus(text, level = "") {
     $("status").textContent = text;
@@ -211,7 +219,7 @@
     $("textBindingActions").style.display = nonText ? "none" : "block";
     $("annotationControls").hidden = !nonText;
     $("repeaterControls").hidden = selection?.type !== "board";
-    $("repeaterContextNote").hidden = !(selection?.type === "text" && selection.ancestorRepeater);
+    $("repeaterContextNote").hidden = !(selection?.type === "text" && effectiveAncestorRepeater());
     renderAnnotations();
     renderRepeaterFields();
     renderSource();
@@ -225,7 +233,7 @@
     $("valuePreview").textContent = "";
     if (!selection || !source || !$("path").value.trim()) return;
     try {
-      const value = resolveValue(source.characters, $("path").value.trim(), selection.type === "text" ? selection.ancestorRepeater : null);
+      const value = resolveValue(source.characters, $("path").value.trim(), selection.type === "text" ? effectiveAncestorRepeater() : null);
       $("valuePreview").textContent = value === "" ? "(empty value)" : value;
       $("bind").disabled = selection.type !== "text";
       $("saveAnnotation").disabled = selection.type === "text" || !$("annotationRemark").value.trim();
@@ -258,7 +266,6 @@
       ? `Bound fields in the template layers: ${fields.map((field) => `${field.name} (${field.path})`).join(", ")}`
       : "No bound text layers among this board's direct child layers yet. Bind their text layers first.";
     $("removeRepeater").disabled = !selection.repeater;
-    $("applyRepeater").disabled = !source || !$("repeaterPath").value.trim();
   }
 
   function renderAnnotations() {
@@ -278,7 +285,11 @@
       remove.textContent = "\u{1F5D1}";
       remove.title = "Remove binding";
       remove.setAttribute("aria-label", `Remove binding ${selection.path}`);
-      remove.onclick = () => send({ type: "unbind", targetId: selection?.id });
+      remove.onclick = () => {
+        const containerId = selection?.ancestorContainerId;
+        send({ type: "unbind", targetId: selection?.id });
+        if (containerId) send({ type: "refresh-all" });
+      };
       header.append(path, remove);
       const sourceName = document.createElement("p");
       sourceName.className = "muted annotation-source";
@@ -399,9 +410,10 @@
       return;
     }
     let root = null;
-    if (selection.type === "text" && selection.ancestorRepeater) {
+    const ancestorRepeater = selection.type === "text" ? effectiveAncestorRepeater() : null;
+    if (ancestorRepeater) {
       try {
-        root = doc.evaluate(selection.ancestorRepeater.path, doc, doc.createNSResolver(doc.documentElement), XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        root = doc.evaluate(ancestorRepeater.path, doc, doc.createNSResolver(doc.documentElement), XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
       } catch {
         root = null;
       }
@@ -690,7 +702,8 @@
   $("cancelAnnotation").onclick = resetAnnotationForm;
   $("repeaterPath").oninput = () => {
     if (selection?.type === "board") repeaterDrafts.set(selection.id, $("repeaterPath").value);
-    $("applyRepeater").disabled = !source || !$("repeaterPath").value.trim();
+    if (repeaterApplyTimer) clearTimeout(repeaterApplyTimer);
+    repeaterApplyTimer = setTimeout(tryApplyRepeater, 600);
   };
   function computeRepeaterInstances(xml, path, fields) {
     const { doc, nodes } = resolveNodeSet(xml, path);
@@ -707,10 +720,10 @@
     });
   }
 
-  $("applyRepeater").onclick = () => {
+  function tryApplyRepeater() {
     if (!selection || selection.type !== "board" || !source) return;
     const path = $("repeaterPath").value.trim();
-    if (!path) return setStatus("Repeater XPath is required.", "error");
+    if (!path) return;
     try {
       const fields = (selection.repeaterFields || []).filter((field) => field.path);
       const instances = computeRepeaterInstances(source.characters, path, fields);
@@ -718,8 +731,9 @@
     } catch (err) {
       setStatus(err.message || String(err), "error");
     }
-  };
+  }
   $("removeRepeater").onclick = () => {
+    if (repeaterApplyTimer) clearTimeout(repeaterApplyTimer);
     if (selection?.id) repeaterDrafts.delete(selection.id);
     send({ type: "remove-repeater", targetId: selection?.id, fileId, pageId });
   };
@@ -739,8 +753,10 @@
     if (!source) return setStatus("Choose an XML source first.", "error");
     const path = $("path").value.trim();
     try {
-      const value = resolveValue(source.characters, path, selection?.ancestorRepeater);
+      const value = resolveValue(source.characters, path, selection?.type === "text" ? effectiveAncestorRepeater() : null);
+      const containerId = selection?.ancestorContainerId;
       send({ type: "bind", targetId: selection?.id, sourceId: source.id, xml: source.characters, path, value });
+      if (containerId) send({ type: "refresh-all" });
     } catch (err) {
       setStatus(err.message || String(err), "error");
     }
