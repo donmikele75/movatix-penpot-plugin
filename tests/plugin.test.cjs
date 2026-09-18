@@ -182,7 +182,7 @@ function createHarness(options = {}) {
     const data = {};
     const clone = {
       id, name: shape.name, type: shape.type, x: shape.x, y: shape.y, height: shape.height,
-      characters: shape.characters,
+      characters: shape.characters, fills: shape.fills ? [...shape.fills] : undefined,
       children: shape.children ? shape.children.map((child) => cloneShape(child)) : undefined,
       getPluginData: (key) => data[key] || "",
       setPluginData: (key, value) => { data[key] = value; },
@@ -199,9 +199,10 @@ function createHarness(options = {}) {
     shapes.set(id, clone);
     return clone;
   }
-  function createShape(id, characters, data = {}) {
+  function createShape(id, characters, data = {}, type = "text") {
     const shape = {
-      id, name: id, type: "text", characters,
+      id, name: id, type, characters,
+      fills: type === "rectangle" ? [] : undefined,
       getPluginData: (key) => data[key] || "",
       setPluginData: (key, value) => { data[key] = value; },
       remove: () => shapes.delete(id),
@@ -209,6 +210,9 @@ function createHarness(options = {}) {
     shape.clone = () => cloneShape(shape);
     shapes.set(id, shape);
     return shape;
+  }
+  function createRectangle(id, data = {}) {
+    return createShape(id, "", data, "rectangle");
   }
   const source = createShape("source", "<data><name>Alpha</name></data>", options.sourceData);
   const otherSource = createShape("other-source", "<data><name>Beta</name></data>");
@@ -238,6 +242,7 @@ function createHarness(options = {}) {
   const messages = [];
   const sizes = [];
   const listeners = {};
+  const uploadCalls = [];
   const fileData = { "xml-binding-default-source": source.id, ...options.fileData };
   let receive;
   const penpot = {
@@ -259,16 +264,20 @@ function createHarness(options = {}) {
       onMessage: (callback) => { receive = callback; },
     },
     on: (event, callback) => { listeners[event] = callback; },
+    uploadMediaData: async (name, bytes, mimeType) => {
+      uploadCalls.push({ name, bytes, mimeType });
+      return { id: `media-${uploadCalls.length}`, width: 10, height: 10, mtype: mimeType, data: async () => bytes };
+    },
   };
   penpot.currentFile.pages = [penpot.currentPage];
-  options.initialize?.({ penpot, target, source, otherSource, shapes, createBoard, createShape });
+  options.initialize?.({ penpot, target, source, otherSource, shapes, createBoard, createShape, createRectangle });
   const restart = () => vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../plugin.js"), "utf8"), { penpot });
   restart();
   const bind = (overrides = {}) => receive({
     type: "bind", targetId: target.id, sourceId: source.id,
     xml: source.characters, path: "/data/name", value: "Alpha", ...overrides,
   });
-  return { source, otherSource, target, shapes, messages, sizes, listeners, penpot, bind, fileData, restart, createBoard, createShape, receive: (message) => receive(message) };
+  return { source, otherSource, target, shapes, messages, sizes, listeners, penpot, bind, fileData, restart, createBoard, createShape, createRectangle, uploadCalls, receive: (message) => receive(message) };
 }
 
 test("source editor expands and restores the plugin window", () => {
@@ -556,9 +565,9 @@ function createRepeaterHarness() {
   return { ...harness, board: () => container, xml, apply };
 }
 
-test("apply-repeater clones every direct child of the container as a group per matched node", () => {
+test("apply-repeater clones every direct child of the container as a group per matched node", async () => {
   const harness = createRepeaterHarness();
-  harness.apply();
+  await harness.apply();
   const container = harness.board();
   assert.equal(harness.shapes.get("label").characters, "First");
   assert.equal(harness.shapes.get("sub").characters, "First");
@@ -586,11 +595,11 @@ test("apply-repeater clones every direct child of the container as a group per m
   assert.deepEqual(harness.messages.at(-1).shape.repeaterFields.map((field) => field.id), ["label", "sub"]);
 });
 
-test("re-applying a repeater removes previously generated instances before creating new ones", () => {
+test("re-applying a repeater removes previously generated instances before creating new ones", async () => {
   const harness = createRepeaterHarness();
-  harness.apply();
+  await harness.apply();
   const firstRoundIds = JSON.parse(harness.board().getPluginData("xml-binding-repeater-instances"));
-  harness.apply({ instances: [{ values: { label: "Only", sub: "Only" } }] });
+  await harness.apply({ instances: [{ values: { label: "Only", sub: "Only" } }] });
   for (const id of firstRoundIds) assert.equal(harness.shapes.has(id), false);
   assert.equal(JSON.parse(harness.board().getPluginData("xml-binding-repeater-instances")).length, 0);
   assert.equal(harness.board().children.length, 2);
@@ -598,28 +607,28 @@ test("re-applying a repeater removes previously generated instances before creat
   assert.equal(harness.shapes.get("sub").characters, "Only");
 });
 
-test("apply-repeater rejects wrong target, stale XML, missing path and non-array instances", () => {
+test("apply-repeater rejects wrong target, stale XML, missing path and non-array instances", async () => {
   const harness = createRepeaterHarness();
   for (const overrides of [
     { targetId: "other" }, { fileId: "other" }, { pageId: "other" },
     { xml: "stale" }, { path: "" }, { instances: "not-an-array" },
   ]) {
-    harness.apply(overrides);
+    await harness.apply(overrides);
     assert.equal(harness.board().getPluginData("xml-binding-repeater"), "");
   }
 });
 
-test("apply-repeater works on a container that is not the current selection (bulk refresh)", () => {
+test("apply-repeater works on a container that is not the current selection (bulk refresh)", async () => {
   const harness = createRepeaterHarness();
   harness.penpot.selection = [harness.target];
-  harness.apply();
+  await harness.apply();
   assert.equal(JSON.parse(harness.board().getPluginData("xml-binding-repeater")).path, "/data/items/item");
   assert.equal(harness.shapes.get("label").characters, "First");
 });
 
-test("remove-repeater clears the configuration and deletes generated clones", () => {
+test("remove-repeater clears the configuration and deletes generated clones", async () => {
   const harness = createRepeaterHarness();
-  harness.apply();
+  await harness.apply();
   const instanceIds = JSON.parse(harness.board().getPluginData("xml-binding-repeater-instances"));
   harness.receive({ type: "remove-repeater", targetId: "board", fileId: "file", pageId: "page" });
   assert.equal(harness.board().getPluginData("xml-binding-repeater"), "");
@@ -637,9 +646,9 @@ test("corrupt repeater configuration is reported and never overwritten", () => {
   assert.equal(harness.board().getPluginData("xml-binding-repeater"), '{"version":2}');
 });
 
-test("refresh-all includes repeater containers with template fields for regeneration", () => {
+test("refresh-all includes repeater containers with template fields for regeneration", async () => {
   const harness = createRepeaterHarness();
-  harness.apply();
+  await harness.apply();
   harness.receive({ type: "refresh-all" });
   const message = harness.messages.at(-1);
   assert.equal(message.type, "refresh-data");
@@ -651,9 +660,9 @@ test("refresh-all includes repeater containers with template fields for regenera
   assert.deepEqual(repeater.fields.map((field) => field.id), ["label", "sub"]);
 });
 
-test("a text layer inside a repeater container reports the ancestor repeater config for context-aware preview", () => {
+test("a text layer inside a repeater container reports the ancestor repeater config for context-aware preview", async () => {
   const harness = createRepeaterHarness();
-  harness.apply();
+  await harness.apply();
   const label = harness.shapes.get("label");
   harness.penpot.selection = [label];
   harness.listeners.selectionchange();
@@ -661,9 +670,9 @@ test("a text layer inside a repeater container reports the ancestor repeater con
   assert.equal(harness.messages.at(-1).shape.ancestorContainerId, "board");
 });
 
-test("a text layer nested two levels below the repeater container also reports the ancestor repeater config", () => {
+test("a text layer nested two levels below the repeater container also reports the ancestor repeater config", async () => {
   const harness = createRepeaterHarness();
-  harness.apply();
+  await harness.apply();
   const sub = harness.shapes.get("sub");
   harness.penpot.selection = [sub];
   harness.listeners.selectionchange();
@@ -686,9 +695,9 @@ test("a text layer inside a not-yet-generated container reports the container id
   assert.equal(harness.messages.at(-1).shape.ancestorContainerId, "board");
 });
 
-test("the original template text layers report isRepeaterClone false, generated instances report it true", () => {
+test("the original template text layers report isRepeaterClone false, generated instances report it true", async () => {
   const harness = createRepeaterHarness();
-  harness.apply();
+  await harness.apply();
   const container = harness.board();
 
   harness.penpot.selection = [harness.shapes.get("label")];
@@ -711,9 +720,9 @@ test("the original template text layers report isRepeaterClone false, generated 
   assert.equal(harness.messages.at(-1).shape.isRepeaterClone, true);
 });
 
-test("bind rejects a target that is a generated repeater instance and leaves it unchanged", () => {
+test("bind rejects a target that is a generated repeater instance and leaves it unchanged", async () => {
   const harness = createRepeaterHarness();
-  harness.apply();
+  await harness.apply();
   const container = harness.board();
   const labelClone = container.children.find((child) => child.type === "text" && child.id !== "label");
   const before = labelClone.characters;
@@ -725,4 +734,98 @@ test("bind rejects a target that is a generated repeater instance and leaves it 
   assert.match(harness.messages.findLast((message) => message.type === "status").text, /generated repeater instance/);
   assert.equal(labelClone.characters, before);
   assert.equal(labelClone.getPluginData("xml-binding-path"), "");
+});
+
+function createPictureHarness() {
+  const xml = "<data><photo>AAAA</photo></data>";
+  const harness = createHarness({
+    initialize: ({ source, createRectangle, penpot }) => {
+      source.characters = xml;
+      const rectangle = createRectangle("rectangle");
+      penpot.selection = [rectangle];
+    },
+  });
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]);
+  const base64 = Buffer.from(jpeg).toString("base64");
+  return { ...harness, xml, base64 };
+}
+
+test("apply-picture uploads and sets an image fill on a rectangle from resolved base64", async () => {
+  const harness = createPictureHarness();
+  const rectangle = harness.shapes.get("rectangle");
+  await harness.receive({
+    type: "apply-picture", targetId: "rectangle", sourceId: "source",
+    xml: harness.xml, path: "/data/photo", value: harness.base64,
+  });
+  assert.equal(harness.uploadCalls.length, 1);
+  assert.equal(harness.uploadCalls[0].mimeType, "image/jpeg");
+  assert.equal(rectangle.fills.length, 1);
+  assert.equal(rectangle.fills[0].fillImage.mtype, "image/jpeg");
+  assert.equal(rectangle.getPluginData("xml-binding-source"), "source");
+  assert.equal(rectangle.getPluginData("xml-binding-path"), "/data/photo");
+});
+
+test("apply-picture rejects invalid or unrecognized image data without uploading", async () => {
+  const harness = createPictureHarness();
+  const rectangle = harness.shapes.get("rectangle");
+  await harness.receive({
+    type: "apply-picture", targetId: "rectangle", sourceId: "source",
+    xml: harness.xml, path: "/data/photo", value: "not-base64-image-data!!",
+  });
+  assert.equal(harness.uploadCalls.length, 0);
+  assert.equal(rectangle.fills.length, 0);
+  assert.match(harness.messages.findLast((message) => message.type === "status").text, /Invalid base64 image data|Unsupported or unrecognized image format/);
+});
+
+test("identical image values across repeater instances are uploaded only once", async () => {
+  const xml = "<data><items><item><photo>same</photo></item><item><photo>same</photo></item></items></data>";
+  let container;
+  const harness = createHarness({
+    initialize: ({ source, createBoard, createRectangle, penpot }) => {
+      source.characters = xml;
+      const rectangle = createRectangle("picture", { "xml-binding-source": "source", "xml-binding-path": "./photo" });
+      rectangle.x = 0; rectangle.y = 0; rectangle.height = 20;
+      container = createBoard("board", [rectangle], { x: 0, y: 0, height: 20 });
+      penpot.selection = [container];
+    },
+  });
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]);
+  const base64 = Buffer.from(jpeg).toString("base64");
+  await harness.receive({
+    type: "apply-repeater", targetId: "board", fileId: "file", pageId: "page",
+    sourceId: "source", xml, path: "/data/items/item",
+    instances: [{ values: { picture: base64 } }, { values: { picture: base64 } }],
+  });
+  assert.equal(harness.uploadCalls.length, 1);
+  const clone = container.children.find((child) => child.id !== "picture");
+  assert.equal(clone.fills[0].fillImage.mtype, "image/jpeg");
+});
+
+test("a picture layer that is a generated repeater instance rejects direct editing", async () => {
+  const xml = "<data><items><item><photo>same</photo></item><item><photo>same</photo></item></items></data>";
+  let container;
+  const harness = createHarness({
+    initialize: ({ source, createBoard, createRectangle, penpot }) => {
+      source.characters = xml;
+      const rectangle = createRectangle("picture", { "xml-binding-source": "source", "xml-binding-path": "./photo" });
+      rectangle.x = 0; rectangle.y = 0; rectangle.height = 20;
+      container = createBoard("board", [rectangle], { x: 0, y: 0, height: 20 });
+      penpot.selection = [container];
+    },
+  });
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]);
+  const base64 = Buffer.from(jpeg).toString("base64");
+  await harness.receive({
+    type: "apply-repeater", targetId: "board", fileId: "file", pageId: "page",
+    sourceId: "source", xml, path: "/data/items/item",
+    instances: [{ values: { picture: base64 } }, { values: { picture: base64 } }],
+  });
+  const clone = container.children.find((child) => child.id !== "picture");
+  harness.penpot.selection = [clone];
+  await harness.receive({
+    type: "apply-picture", targetId: clone.id, sourceId: "source",
+    xml, path: "./photo", value: base64,
+  });
+  assert.match(harness.messages.findLast((message) => message.type === "status").text, /generated repeater instance/);
+  assert.equal(clone.getPluginData("xml-binding-path"), "");
 });

@@ -102,6 +102,9 @@
     <div id="textBindingActions" style="margin-top:10px">
       <button id="bind" class="primary" style="width:100%" disabled>Apply binding</button>
     </div>
+    <div id="pictureBindingActions" style="margin-top:10px">
+      <button id="bindPicture" class="primary" style="width:100%" disabled>Apply picture</button>
+    </div>
     <div id="annotationControls" hidden>
       <label for="annotationRemark" style="margin-top:10px">Remark (required)</label>
       <textarea id="annotationRemark" required></textarea>
@@ -192,10 +195,27 @@
   const send = (message) => parent.postMessage(message, "*");
 
   function effectiveAncestorRepeater() {
-    if (selection?.type !== "text") return null;
+    if (selection?.type !== "text" && selection?.type !== "rectangle") return null;
     if (selection.ancestorRepeater) return selection.ancestorRepeater;
     const draftPath = selection.ancestorContainerId ? repeaterDrafts.get(selection.ancestorContainerId) : undefined;
     return draftPath ? { path: draftPath } : null;
+  }
+
+  function sniffImageMimeClient(base64) {
+    const clean = base64.replace(/\s+/g, "");
+    let header;
+    try {
+      header = atob(clean.slice(0, 24));
+    } catch {
+      return null;
+    }
+    const bytes = Array.from(header, (ch) => ch.charCodeAt(0));
+    if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
+    if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return "image/gif";
+    if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+    return null;
   }
 
   function setStatus(text, level = "") {
@@ -209,15 +229,16 @@
     $("xmlPreview").value = source?.characters || "";
     $("sourceStorage").textContent = source ? "Stored in this document" : "";
     $("editSource").disabled = !source;
-    $("pickXPath").disabled = !source || !selection || (selection.type === "text" && selection.isRepeaterClone);
+    $("pickXPath").disabled = !source || !selection || ((selection.type === "text" || selection.type === "rectangle") && selection.isRepeaterClone);
     $("pickRepeaterNodes").disabled = !source || selection?.type !== "board";
   }
 
   function renderSelection() {
     const isText = selection?.type === "text";
     const isBoard = selection?.type === "board";
-    const isOtherNonText = !!selection && !isText && !isBoard;
-    const isClone = isText && selection.isRepeaterClone;
+    const isPicture = selection?.type === "rectangle";
+    const isOtherNonText = !!selection && !isText && !isBoard && !isPicture;
+    const isClone = (isText || isPicture) && selection.isRepeaterClone;
     $("targetName").textContent = selection ? selection.name : "No single layer selected.";
     $("targetName").title = selection?.id || "";
     $("targetName").hidden = !isOtherNonText;
@@ -226,10 +247,11 @@
     $("sourceSection").hidden = !!selection;
     $("xpathSection").hidden = isBoard || !selection;
     $("textBindingActions").style.display = isText ? "block" : "none";
+    $("pictureBindingActions").style.display = isPicture ? "block" : "none";
     $("annotationControls").hidden = !isOtherNonText;
     $("annotationList").hidden = !isOtherNonText;
     $("repeaterControls").hidden = !isBoard;
-    $("repeaterContextNote").hidden = !(isText && !isClone && effectiveAncestorRepeater());
+    $("repeaterContextNote").hidden = !((isText || isPicture) && !isClone && effectiveAncestorRepeater());
     $("repeaterCloneNote").hidden = !isClone;
     renderAnnotations();
     renderRepeaterFields();
@@ -239,15 +261,27 @@
 
   function renderPreview() {
     $("bind").disabled = true;
+    $("bindPicture").disabled = true;
     $("saveAnnotation").disabled = true;
     $("valuePreview").className = "muted";
-    $("valuePreview").textContent = "";
+    $("valuePreview").replaceChildren();
     if (!selection || !source || !$("path").value.trim()) return;
     try {
-      const value = resolveValue(source.characters, $("path").value.trim(), selection.type === "text" ? effectiveAncestorRepeater() : null);
-      $("valuePreview").textContent = value === "" ? "(empty value)" : value;
-      $("bind").disabled = selection.type !== "text" || selection.isRepeaterClone;
-      $("saveAnnotation").disabled = selection.type === "text" || !$("annotationRemark").value.trim();
+      const value = resolveValue(source.characters, $("path").value.trim(), (selection.type === "text" || selection.type === "rectangle") ? effectiveAncestorRepeater() : null);
+      if (selection.type === "rectangle") {
+        const mime = sniffImageMimeClient(value);
+        if (!mime) throw new Error("Unsupported or unrecognized image format.");
+        const img = document.createElement("img");
+        img.src = `data:${mime};base64,${value.replace(/\s+/g, "")}`;
+        img.style.maxWidth = "100%";
+        img.style.display = "block";
+        $("valuePreview").append(img);
+        $("bindPicture").disabled = selection.isRepeaterClone;
+      } else {
+        $("valuePreview").textContent = value === "" ? "(empty value)" : value;
+        $("bind").disabled = selection.type !== "text" || selection.isRepeaterClone;
+      }
+      $("saveAnnotation").disabled = selection.type === "text" || selection.type === "rectangle" || !$("annotationRemark").value.trim();
     } catch (err) {
       $("valuePreview").textContent = err.message || String(err);
       $("valuePreview").className = "error";
@@ -274,7 +308,7 @@
     if (repeaterDrafts.get(selection.id) === (selection.repeater?.path || "")) repeaterDrafts.delete(selection.id);
     const fields = (selection.repeaterFields || []).filter((field) => field.path);
     $("repeaterFields").textContent = fields.length
-      ? `Bound fields in the template layers: ${fields.map((field) => `${field.name} (${field.path})`).join(", ")}`
+      ? `Bound fields in the template layers: ${fields.map((field) => `${field.name} (${field.path})${field.kind === "picture" ? " [picture]" : ""}`).join(", ")}`
       : "No bound text layers among this board's direct child layers yet. Bind their text layers first.";
     $("removeRepeater").disabled = !selection.repeater;
     $("applyRepeater").disabled = !source || !$("repeaterPath").value.trim();
@@ -418,7 +452,7 @@
 
   function openXPathPicker(mode = "value") {
     if (!source || !selection) return;
-    if (mode === "value" && selection.type === "text" && selection.isRepeaterClone) return;
+    if (mode === "value" && (selection.type === "text" || selection.type === "rectangle") && selection.isRepeaterClone) return;
     let doc;
     try {
       doc = parseXml(normalizeXmlMarkup(source.characters));
@@ -427,7 +461,7 @@
       return;
     }
     let root = null;
-    const ancestorRepeater = mode === "value" && selection.type === "text" ? effectiveAncestorRepeater() : null;
+    const ancestorRepeater = mode === "value" && (selection.type === "text" || selection.type === "rectangle") ? effectiveAncestorRepeater() : null;
     if (ancestorRepeater) {
       try {
         root = doc.evaluate(ancestorRepeater.path, doc, doc.createNSResolver(doc.documentElement), XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
@@ -762,7 +796,7 @@
     send({ type: "remove-repeater", targetId: selection?.id, fileId, pageId });
   };
   $("saveAnnotation").onclick = () => {
-    if (!selection || selection.type === "text" || !source) return;
+    if (!selection || selection.type === "text" || selection.type === "rectangle" || !source) return;
     const path = $("path").value.trim();
     const remark = $("annotationRemark").value.trim();
     if (!remark) return setStatus("A remark is required for every XPath.", "error");
@@ -780,6 +814,17 @@
     try {
       const value = resolveValue(source.characters, path, selection?.type === "text" ? effectiveAncestorRepeater() : null);
       send({ type: "bind", targetId: selection?.id, sourceId: source.id, xml: source.characters, path, value });
+    } catch (err) {
+      setStatus(err.message || String(err), "error");
+    }
+  };
+  $("bindPicture").onclick = () => {
+    if (!source) return setStatus("Choose an XML source first.", "error");
+    if (selection?.type !== "rectangle" || selection.isRepeaterClone) return;
+    const path = $("path").value.trim();
+    try {
+      const value = resolveValue(source.characters, path, effectiveAncestorRepeater());
+      send({ type: "apply-picture", targetId: selection.id, sourceId: source.id, xml: source.characters, path, value });
     } catch (err) {
       setStatus(err.message || String(err), "error");
     }
@@ -857,6 +902,19 @@
         }
       });
       send({ type: "apply-values", results });
+
+      for (const picture of msg.pictures || []) {
+        if (picture.xml == null) {
+          setStatus("A picture's XML source was not found and was skipped.", "error");
+          continue;
+        }
+        try {
+          const value = resolveXml(picture.xml, picture.path);
+          send({ type: "apply-picture", targetId: picture.targetId, sourceId: picture.sourceId, xml: picture.xml, path: picture.path, value });
+        } catch (err) {
+          setStatus(err.message || String(err), "error");
+        }
+      }
 
       for (const repeater of msg.repeaters || []) {
         if (repeater.xml == null) {
