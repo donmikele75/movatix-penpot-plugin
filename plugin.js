@@ -7,6 +7,7 @@ const ANNOTATIONS_KEY = "xml-binding-annotations";
 const REPEATER_KEY = "xml-binding-repeater";
 const REPEATER_INSTANCES_KEY = "xml-binding-repeater-instances";
 const ORIGINAL_TEXT_KEY = "xml-binding-original-text";
+const ORIGINAL_FILLS_KEY = "xml-binding-original-fills";
 const REPEATER_GAP = 24;
 
 function keyedError(message, i18nKey, i18nParams) {
@@ -425,6 +426,7 @@ async function handleApplyPicture(message) {
     return;
   }
   if (typeof message.path !== "string" || !message.path.trim() || typeof message.value !== "string") return;
+  if (!target.getPluginData(SOURCE_KEY)) target.setPluginData(ORIGINAL_FILLS_KEY, JSON.stringify({ version: 1, fills: target.fills || [] }));
   try {
     await applyFieldValue(target, message.value);
   } catch (error) {
@@ -605,6 +607,18 @@ function handleMessage(message) {
         }
       }
       target.setPluginData(ORIGINAL_TEXT_KEY, "");
+    }
+    if (target.type === "rectangle") {
+      const rawOriginal = target.getPluginData(ORIGINAL_FILLS_KEY);
+      if (rawOriginal) {
+        try {
+          const original = JSON.parse(rawOriginal);
+          if (Array.isArray(original.fills)) target.fills = original.fills;
+        } catch {
+          // corrupt snapshot: leave the currently rendered fill untouched
+        }
+      }
+      target.setPluginData(ORIGINAL_FILLS_KEY, "");
     }
     target.setPluginData(SOURCE_KEY, "");
     target.setPluginData(PATH_KEY, "");

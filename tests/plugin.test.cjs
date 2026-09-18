@@ -795,6 +795,46 @@ test("apply-picture rejects invalid or unrecognized image data without uploading
   assert.match(harness.messages.findLast((message) => message.type === "status").text, /Invalid base64 image data|Unsupported or unrecognized image format/);
 });
 
+test("unbinding a rectangle restores the pre-binding fills", async () => {
+  const harness = createPictureHarness();
+  const rectangle = harness.shapes.get("rectangle");
+  await harness.receive({
+    type: "apply-picture", targetId: "rectangle", sourceId: "source",
+    xml: harness.xml, path: "/data/photo", value: harness.base64,
+  });
+  assert.equal(rectangle.fills.length, 1);
+  harness.receive({ type: "unbind", targetId: "rectangle" });
+  assert.equal(rectangle.fills.length, 0);
+  assert.equal(rectangle.getPluginData("xml-binding-path"), "");
+});
+
+test("rebinding a rectangle to a different path keeps the original pre-binding fills snapshot", async () => {
+  const harness = createPictureHarness();
+  const rectangle = harness.shapes.get("rectangle");
+  await harness.receive({
+    type: "apply-picture", targetId: "rectangle", sourceId: "source",
+    xml: harness.xml, path: "/data/photo", value: harness.base64,
+  });
+  const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64");
+  await harness.receive({
+    type: "apply-picture", targetId: "rectangle", sourceId: "source",
+    xml: harness.xml, path: "/data/other", value: pngHeader,
+  });
+  assert.equal(rectangle.fills[0].fillImage.mtype, "image/png");
+  harness.receive({ type: "unbind", targetId: "rectangle" });
+  assert.equal(rectangle.fills.length, 0);
+});
+
+test("unbinding a pre-existing rectangle binding without a stored snapshot leaves the fill untouched", () => {
+  const harness = createPictureHarness();
+  const rectangle = harness.shapes.get("rectangle");
+  rectangle.setPluginData("xml-binding-source", "source");
+  rectangle.setPluginData("xml-binding-path", "/data/photo");
+  rectangle.fills = [{ fillColor: "#ff0000", fillOpacity: 1 }];
+  harness.receive({ type: "unbind", targetId: "rectangle" });
+  assert.deepEqual(rectangle.fills, [{ fillColor: "#ff0000", fillOpacity: 1 }]);
+});
+
 test("identical image values across repeater instances are uploaded only once", async () => {
   const xml = "<data><items><item><photo>same</photo></item><item><photo>same</photo></item></items></data>";
   let container;
