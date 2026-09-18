@@ -194,6 +194,7 @@ function createHarness(options = {}) {
         }
       },
     };
+    for (const child of clone.children || []) child.parent = clone;
     clone.clone = () => cloneShape(clone);
     shapes.set(id, clone);
     return clone;
@@ -683,4 +684,45 @@ test("a text layer inside a not-yet-generated container reports the container id
   harness.listeners.selectionchange();
   assert.equal(harness.messages.at(-1).shape.ancestorRepeater, null);
   assert.equal(harness.messages.at(-1).shape.ancestorContainerId, "board");
+});
+
+test("the original template text layers report isRepeaterClone false, generated instances report it true", () => {
+  const harness = createRepeaterHarness();
+  harness.apply();
+  const container = harness.board();
+
+  harness.penpot.selection = [harness.shapes.get("label")];
+  harness.listeners.selectionchange();
+  assert.equal(harness.messages.at(-1).shape.isRepeaterClone, false);
+
+  harness.penpot.selection = [harness.shapes.get("sub")];
+  harness.listeners.selectionchange();
+  assert.equal(harness.messages.at(-1).shape.isRepeaterClone, false);
+
+  const labelClone = container.children.find((child) => child.type === "text" && child.id !== "label");
+  harness.penpot.selection = [labelClone];
+  harness.listeners.selectionchange();
+  assert.equal(harness.messages.at(-1).shape.isRepeaterClone, true);
+
+  const noteClone = container.children.find((child) => child.type === "board" && child.id !== "note");
+  const subClone = noteClone.children[0];
+  harness.penpot.selection = [subClone];
+  harness.listeners.selectionchange();
+  assert.equal(harness.messages.at(-1).shape.isRepeaterClone, true);
+});
+
+test("bind rejects a target that is a generated repeater instance and leaves it unchanged", () => {
+  const harness = createRepeaterHarness();
+  harness.apply();
+  const container = harness.board();
+  const labelClone = container.children.find((child) => child.type === "text" && child.id !== "label");
+  const before = labelClone.characters;
+  harness.penpot.selection = [labelClone];
+  harness.receive({
+    type: "bind", targetId: labelClone.id, sourceId: "source",
+    xml: harness.xml, path: "./name", value: "Hacked",
+  });
+  assert.match(harness.messages.findLast((message) => message.type === "status").text, /generated repeater instance/);
+  assert.equal(labelClone.characters, before);
+  assert.equal(labelClone.getPluginData("xml-binding-path"), "");
 });

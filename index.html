@@ -95,6 +95,7 @@
       <textarea id="path" spellcheck="false" disabled></textarea>
       <button id="pickXPath" style="margin-top:6px" disabled>Choose XML node</button>
       <div id="repeaterContextNote" class="muted" hidden>Inside a repeater container: preview and picker use the first matched element as context.</div>
+      <div id="repeaterCloneNote" class="muted" hidden>This layer is a generated repeater instance. Edit the XPath on the original layer inside the repeater container instead.</div>
       <label for="valuePreview" style="margin-top:10px">Value preview</label>
       <output id="valuePreview" class="muted" aria-live="polite"></output>
     </div>
@@ -208,7 +209,7 @@
     $("xmlPreview").value = source?.characters || "";
     $("sourceStorage").textContent = source ? "Stored in this document" : "";
     $("editSource").disabled = !source;
-    $("pickXPath").disabled = !source || !selection;
+    $("pickXPath").disabled = !source || !selection || (selection.type === "text" && selection.isRepeaterClone);
     $("pickRepeaterNodes").disabled = !source || selection?.type !== "board";
   }
 
@@ -216,10 +217,11 @@
     const isText = selection?.type === "text";
     const isBoard = selection?.type === "board";
     const isOtherNonText = !!selection && !isText && !isBoard;
+    const isClone = isText && selection.isRepeaterClone;
     $("targetName").textContent = selection ? selection.name : "No single layer selected.";
     $("targetName").title = selection?.id || "";
     $("targetName").hidden = !isOtherNonText;
-    $("path").disabled = !selection;
+    $("path").disabled = !selection || isClone;
     $("newSource").disabled = !fileId;
     $("sourceSection").hidden = !!selection;
     $("xpathSection").hidden = isBoard || !selection;
@@ -227,7 +229,8 @@
     $("annotationControls").hidden = !isOtherNonText;
     $("annotationList").hidden = !isOtherNonText;
     $("repeaterControls").hidden = !isBoard;
-    $("repeaterContextNote").hidden = !(isText && effectiveAncestorRepeater());
+    $("repeaterContextNote").hidden = !(isText && !isClone && effectiveAncestorRepeater());
+    $("repeaterCloneNote").hidden = !isClone;
     renderAnnotations();
     renderRepeaterFields();
     renderSource();
@@ -243,7 +246,7 @@
     try {
       const value = resolveValue(source.characters, $("path").value.trim(), selection.type === "text" ? effectiveAncestorRepeater() : null);
       $("valuePreview").textContent = value === "" ? "(empty value)" : value;
-      $("bind").disabled = selection.type !== "text";
+      $("bind").disabled = selection.type !== "text" || selection.isRepeaterClone;
       $("saveAnnotation").disabled = selection.type === "text" || !$("annotationRemark").value.trim();
     } catch (err) {
       $("valuePreview").textContent = err.message || String(err);
@@ -415,6 +418,7 @@
 
   function openXPathPicker(mode = "value") {
     if (!source || !selection) return;
+    if (mode === "value" && selection.type === "text" && selection.isRepeaterClone) return;
     let doc;
     try {
       doc = parseXml(normalizeXmlMarkup(source.characters));
@@ -771,6 +775,7 @@
   };
   $("bind").onclick = () => {
     if (!source) return setStatus("Choose an XML source first.", "error");
+    if (selection?.type === "text" && selection.isRepeaterClone) return;
     const path = $("path").value.trim();
     try {
       const value = resolveValue(source.characters, path, selection?.type === "text" ? effectiveAncestorRepeater() : null);

@@ -39,6 +39,8 @@ For each matched element, the plugin clones every direct child layer of the cont
 
 When you select a text layer that is nested (at any depth) inside a repeater container, its value preview, **Apply binding** and **Choose XML node** automatically use the repeater's matched element as context (shown as a note above the value preview) as soon as a container XPath exists — even a still-unsaved draft you just typed — so a relative path like `./name` resolves and can be applied normally instead of showing "XPath has no matches" against the whole document. The picker also starts its tree at that matched element and generates paths relative to it. This only affects the preview/picker for that one representative match; the real per-instance values are still computed separately for every match whenever you click **Apply** on the container.
 
+Only the **original** text layers inside a container's template can have their XPath edited. A text layer that belongs to a generated clone (any non-first match) shows a note instead — its XPath field, picker and Apply binding are disabled, since its value is fully controlled by the repeater and would just be overwritten on the next regenerate; edit the corresponding layer inside the template instead.
+
 **Refresh all bindings** also regenerates every repeater container on the current page: it discards each container's previously generated clones and recreates them from the latest XML, in addition to updating plain text bindings.
 
 ## XPath picker

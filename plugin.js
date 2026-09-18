@@ -124,6 +124,23 @@ function findAncestorContainerId(shape) {
   return null;
 }
 
+function isRepeaterInstanceMember(shape) {
+  const chain = [shape];
+  let node = shape?.parent || null;
+  while (node) {
+    if (node.type === "board") {
+      const repeater = readRepeater(node);
+      if (repeater) {
+        const instanceIds = new Set(readRepeaterInstanceIds(node));
+        return chain.some((entry) => instanceIds.has(entry.id));
+      }
+    }
+    chain.push(node);
+    node = node.parent || null;
+  }
+  return false;
+}
+
 function sendSelection(preferredSourceId) {
   const shape = getSelectedShape();
   let annotations;
@@ -131,6 +148,7 @@ function sendSelection(preferredSourceId) {
   let repeaterFields = [];
   let ancestorRepeater = null;
   let ancestorContainerId = null;
+  let isRepeaterClone = false;
   try {
     migrateSources();
     annotations = shape?.type !== "text" ? readAnnotations(shape) : [];
@@ -141,6 +159,7 @@ function sendSelection(preferredSourceId) {
     if (shape?.type === "text") {
       ancestorRepeater = findAncestorRepeater(shape);
       ancestorContainerId = findAncestorContainerId(shape);
+      isRepeaterClone = isRepeaterInstanceMember(shape);
     }
   } catch (error) {
     penpot.ui.sendMessage({ type: "status", level: "error", text: error.message || String(error) });
@@ -165,6 +184,7 @@ function sendSelection(preferredSourceId) {
           repeaterFields,
           ancestorRepeater,
           ancestorContainerId,
+          isRepeaterClone,
           characters: shape.characters ?? "",
           sourceId: shape.getPluginData(SOURCE_KEY) || "",
           path: shape.getPluginData(PATH_KEY) || "",
@@ -417,6 +437,11 @@ function handleMessage(message) {
     }
     if (target.id !== message.targetId || source.characters !== message.xml) {
       penpot.ui.sendMessage({ type: "status", level: "error", text: "Selection or XML changed. Reload and apply again." });
+      sendSelection();
+      return;
+    }
+    if (isRepeaterInstanceMember(target)) {
+      penpot.ui.sendMessage({ type: "status", level: "error", text: "This layer is a generated repeater instance. Edit the XPath on the original layer instead." });
       sendSelection();
       return;
     }
