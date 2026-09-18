@@ -335,7 +335,7 @@ test("binding rejects multiple selected layers but allows the old source layer a
   assert.equal(harness.source.getPluginData("xml-binding-path"), "/data/name");
 });
 
-test("empty values are applied and unbinding preserves the rendered text", () => {
+test("empty values are applied and unbinding restores the pre-binding text", () => {
   const harness = createHarness();
   harness.bind({ value: "" });
   assert.equal(harness.target.characters, "");
@@ -343,7 +343,25 @@ test("empty values are applied and unbinding preserves the rendered text", () =>
   assert.equal(harness.target.getPluginData("xml-binding-path"), "/data/name");
   harness.receive({ type: "unbind", targetId: harness.target.id });
   assert.equal(harness.target.getPluginData("xml-binding-path"), "");
-  assert.equal(harness.target.characters, "");
+  assert.equal(harness.target.characters, "Original");
+});
+
+test("rebinding to a different path keeps the original pre-binding text snapshot", () => {
+  const harness = createHarness();
+  harness.bind({ value: "First" });
+  harness.bind({ path: "/data/other", value: "Second" });
+  assert.equal(harness.target.characters, "Second");
+  harness.receive({ type: "unbind", targetId: harness.target.id });
+  assert.equal(harness.target.characters, "Original");
+});
+
+test("unbinding a pre-existing binding without a stored snapshot leaves the rendered text untouched", () => {
+  const harness = createHarness();
+  harness.target.setPluginData("xml-binding-source", harness.source.id);
+  harness.target.setPluginData("xml-binding-path", "/data/name");
+  harness.target.characters = "Legacy bound value";
+  harness.receive({ type: "unbind", targetId: harness.target.id });
+  assert.equal(harness.target.characters, "Legacy bound value");
 });
 
 test("refresh sends current XML and applies results while preserving failed targets", () => {

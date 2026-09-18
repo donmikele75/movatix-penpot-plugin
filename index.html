@@ -8,8 +8,8 @@
     :root { font-family: Inter, system-ui, sans-serif; color-scheme: light dark; }
     body { margin: 0; padding: 16px; font-size: 13px; }
     section { border-bottom: 1px solid rgba(127,127,127,.35); padding-bottom: 14px; margin-bottom: 14px; }
-    #sourceName, #targetName, #status, #valuePreview { overflow-wrap: anywhere; }
-    #sourceName, #targetName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 18px; height: 18px; }
+    #targetName, #status, #valuePreview { overflow-wrap: anywhere; }
+    #targetName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 18px; height: 18px; }
     #valuePreview { display: block; min-height: 40px; max-height: 100px; overflow: auto; white-space: pre-wrap; margin-top: 6px; }
     details { margin-top: 10px; }
     summary { cursor: pointer; }
@@ -20,6 +20,7 @@
     .field-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .field-heading label { margin: 0; }
     .icon-btn { width: auto; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+    .icon-btn-only { padding: 5px 8px; font-size: 15px; line-height: 1; }
     input, textarea, select { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); background: transparent; }
     textarea { min-height: 100px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
     #path { min-height: 64px; margin: 0; font-size: 12px; }
@@ -93,96 +94,91 @@
 <body>
   <section>
     <h1 id="inspectorTitle">XPath Inspector</h1>
-    <div id="targetName" class="muted">No single layer selected.</div>
+    <div id="targetName" class="muted" data-i18n="noSelection">No single layer selected.</div>
     <div id="annotationList"></div>
     <div id="xpathSection">
       <div class="field-heading" style="margin-top:10px">
-        <label for="path">XPath</label>
-        <button id="pickXPath" class="icon-btn" disabled><span aria-hidden="true">🎯</span> Choose XML node</button>
+        <label for="path" data-i18n="xpathLabel">XPath</label>
+        <button id="pickXPath" class="icon-btn icon-btn-only" disabled title="Choose XML node" data-i18n-title="chooseNode" data-i18n-aria="chooseNode" aria-label="Choose XML node"><span aria-hidden="true">🎯</span></button>
       </div>
       <textarea id="path" spellcheck="false" disabled></textarea>
-      <div id="repeaterContextNote" class="muted" hidden>Inside a repeater container: preview and picker use the first matched element as context.</div>
-      <div id="repeaterCloneNote" class="muted" hidden>This layer is a generated repeater instance. Edit the XPath on the original layer inside the repeater container instead.</div>
-      <label for="valuePreview" style="margin-top:10px">Value preview</label>
+      <div id="repeaterContextNote" class="muted" hidden data-i18n="repeaterContextNote">Inside a repeater container: preview and picker use the first matched element as context.</div>
+      <div id="repeaterCloneNote" class="muted" hidden data-i18n="repeaterCloneNote">This layer is a generated repeater instance. Edit the XPath on the original layer inside the repeater container instead.</div>
+      <label for="valuePreview" style="margin-top:10px" data-i18n="valuePreview">Value preview</label>
       <output id="valuePreview" class="muted" aria-live="polite"></output>
     </div>
     <div id="textBindingActions" class="row" style="margin-top:10px">
-      <button id="bind" class="primary" disabled>Apply binding</button>
-      <button id="clearBind" disabled>Remove binding</button>
+      <button id="bind" class="primary" disabled data-i18n="applyBinding">Apply binding</button>
+      <button id="clearBind" disabled data-i18n="removeBinding">Remove binding</button>
     </div>
     <div id="pictureBindingActions" class="row" style="margin-top:10px">
-      <button id="bindPicture" class="primary" disabled>Apply picture</button>
-      <button id="clearBindPicture" disabled>Remove picture</button>
+      <button id="bindPicture" class="primary" disabled data-i18n="applyPicture">Apply picture</button>
+      <button id="clearBindPicture" disabled data-i18n="removePicture">Remove picture</button>
     </div>
     <div id="annotationControls" hidden>
-      <label for="annotationRemark" style="margin-top:10px">Remark (required)</label>
+      <label for="annotationRemark" style="margin-top:10px" data-i18n="remarkRequiredLabel">Remark (required)</label>
       <textarea id="annotationRemark" required></textarea>
       <div class="row" style="margin-top:8px">
-        <button id="saveAnnotation" class="primary" disabled>Add XPath</button>
-        <button id="cancelAnnotation">Clear</button>
+        <button id="saveAnnotation" class="primary" disabled data-i18n="addXPath">Add XPath</button>
+        <button id="cancelAnnotation" data-i18n="clear">Clear</button>
       </div>
     </div>
     <div id="repeaterControls" hidden>
       <div class="field-heading" style="margin-top:10px">
-        <label for="repeaterPath">Repeater container: XPath (node-set)</label>
-        <button id="pickRepeaterNodes" class="icon-btn" disabled><span aria-hidden="true">🎯</span> Select nodes</button>
+        <label for="repeaterPath" data-i18n="repeaterXPathLabel">XPath (Repeater)</label>
+        <button id="pickRepeaterNodes" class="icon-btn" disabled><span aria-hidden="true">🎯</span> <span data-i18n="selectNodes">Select nodes</span></button>
       </div>
       <textarea id="repeaterPath" spellcheck="false"></textarea>
       <div id="repeaterFields" class="muted"></div>
       <div class="row" style="margin-top:8px">
-        <button id="applyRepeater" class="primary" disabled>Apply</button>
-        <button id="removeRepeater" disabled>Remove repeater</button>
+        <button id="applyRepeater" class="primary" disabled data-i18n="apply">Apply</button>
+        <button id="removeRepeater" disabled data-i18n="removeRepeater">Remove repeater</button>
       </div>
     </div>
   </section>
 
   <section id="sourceSection">
-    <label for="sourceSelect">Document XML source</label>
+    <label for="sourceSelect" data-i18n="documentXmlSource">Document XML source</label>
     <select id="sourceSelect" disabled></select>
-    <div id="sourceName" class="muted">No source selected.</div>
-    <div id="sourceStorage" class="muted"></div>
-    <div class="row" style="margin-top:8px">
-      <button id="newSource" disabled>New XML source</button>
-      <button id="reloadSource">Reload</button>
-    </div>
-    <button id="editSource" class="primary" style="width:100%;margin-top:8px" disabled>Edit XML source</button>
+    <button id="newSource" style="width:100%;margin-top:8px" disabled data-i18n="newXmlSource">New XML source</button>
+    <button id="editSource" class="primary" style="width:100%;margin-top:8px" disabled data-i18n="editXmlSource">Edit XML source</button>
     <details>
-      <summary>Source XML</summary>
-      <textarea id="xmlPreview" aria-label="Source XML" readonly></textarea>
+      <summary data-i18n="sourceXml">Source XML</summary>
+      <textarea id="xmlPreview" aria-label="Source XML" data-i18n-aria="sourceXml" readonly></textarea>
     </details>
   </section>
 
-  <button id="refresh" class="primary" style="width:100%">Refresh all bindings</button>
+  <button id="refresh" class="primary" style="width:100%" data-i18n="refreshAll">Refresh all bindings</button>
   <div id="status" class="muted" role="status"></div>
 
   <dialog id="xpathPicker" aria-labelledby="pickerTitle">
-    <h2 id="pickerTitle">Choose XML node</h2>
-    <label class="check-label"><input type="checkbox" id="preferIds" /> Prefer unique ID attributes</label>
-    <div id="pickerTree" aria-label="XML nodes"></div>
-    <button id="closePicker">Cancel</button>
+    <h2 id="pickerTitle" data-i18n="pickerTitle">Choose XML node</h2>
+    <label class="check-label"><input type="checkbox" id="preferIds" /> <span data-i18n="preferIds">Prefer unique ID attributes</span></label>
+    <div id="pickerTree" aria-label="XML nodes" data-i18n-aria="xmlNodes"></div>
+    <button id="closePicker" data-i18n="cancel">Cancel</button>
   </dialog>
 
   <dialog id="sourceEditor" aria-labelledby="editorTitle">
-    <h2 id="editorTitle">XML source editor</h2>
-    <label for="editorSourceName">Source name</label>
+    <h2 id="editorTitle" data-i18n="editorTitle">XML source editor</h2>
+    <label for="editorSourceName" data-i18n="sourceName">Source name</label>
     <input id="editorSourceName" maxlength="120" />
-    <label for="xmlImport">Import XML file</label>
+    <label for="xmlImport" data-i18n="importXmlFile">Import XML file</label>
     <input id="xmlImport" type="file" accept=".xml,text/xml,application/xml" />
     <div class="editor-tools">
-      <button id="validateXml">Validate XML</button>
-      <button id="prettyPrint">Pretty print</button>
-      <button id="cleanXml">Clean tag separators</button>
+      <button id="validateXml" data-i18n="validateXml">Validate XML</button>
+      <button id="prettyPrint" data-i18n="prettyPrint">Pretty print</button>
+      <button id="cleanXml" data-i18n="cleanTagSeparators">Clean tag separators</button>
     </div>
     <div id="xmlCodeSurface">
       <pre id="xmlHighlight" aria-hidden="true"></pre>
-      <textarea id="xmlEditor" aria-label="XML source code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off"></textarea>
+      <textarea id="xmlEditor" aria-label="XML source code" data-i18n-aria="xmlSourceCode" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off"></textarea>
     </div>
     <div id="editorPosition" class="muted"></div>
     <div id="editorDiagnostic" role="status" aria-live="polite"></div>
-    <label class="check-label"><input type="checkbox" id="refreshAfterSave" checked /> Refresh bindings after saving</label>
+    <label class="check-label"><input type="checkbox" id="refreshAfterSave" checked /> <span data-i18n="refreshAfterSaving">Refresh bindings after saving</span></label>
     <div class="row">
-      <button id="saveSource" class="primary">Save source</button>
-      <button id="closeEditor">Close</button>
+      <button id="saveSource" class="primary" data-i18n="saveSource">Save source</button>
+      <button id="closeEditor" data-i18n="close">Close</button>
     </div>
   </dialog>
 
@@ -204,6 +200,218 @@
 
   const $ = (id) => document.getElementById(id);
   const send = (message) => parent.postMessage(message, "*");
+
+  const LANG = ((typeof navigator !== "undefined" && navigator.language) || "en").toLowerCase().startsWith("de") ? "de" : "en";
+  const I18N = {
+    en: {
+      noSelection: "No single layer selected.",
+      typeText: "Text",
+      typePicture: "Picture",
+      typeBoard: "Board",
+      typeLayer: "Layer",
+      xpathLabel: "XPath",
+      chooseNode: "Choose XML node",
+      repeaterContextNote: "Inside a repeater container: preview and picker use the first matched element as context.",
+      repeaterCloneNote: "This layer is a generated repeater instance. Edit the XPath on the original layer inside the repeater container instead.",
+      valuePreview: "Value preview",
+      applyBinding: "Apply binding",
+      removeBinding: "Remove binding",
+      applyPicture: "Apply picture",
+      removePicture: "Remove picture",
+      remarkRequiredLabel: "Remark (required)",
+      addXPath: "Add XPath",
+      saveXPath: "Save XPath",
+      clear: "Clear",
+      cancelEdit: "Cancel edit",
+      repeaterXPathLabel: "XPath (Repeater)",
+      selectNodes: "Select nodes",
+      apply: "Apply",
+      removeRepeater: "Remove repeater",
+      documentXmlSource: "Document XML source",
+      selectXmlSourcePlaceholder: "Select XML source",
+      newXmlSource: "New XML source",
+      editXmlSource: "Edit XML source",
+      sourceXml: "Source XML",
+      refreshAll: "Refresh all bindings",
+      pickerTitle: "Choose XML node",
+      preferIds: "Prefer unique ID attributes",
+      xmlNodes: "XML nodes",
+      cancel: "Cancel",
+      editorTitle: "XML source editor",
+      sourceName: "Source name",
+      importXmlFile: "Import XML file",
+      validateXml: "Validate XML",
+      prettyPrint: "Pretty print",
+      cleanTagSeparators: "Clean tag separators",
+      xmlSourceCode: "XML source code",
+      refreshAfterSaving: "Refresh bindings after saving",
+      saveSource: "Save source",
+      close: "Close",
+      discardAndClose: "Discard and close",
+      noXPathEntries: "No XPath entries.",
+      editXPathButton: "Edit XPath",
+      deleteEntry: "Delete entry",
+      deleteXPath: "Delete XPath {path}",
+      remarkFor: "Remark for {path}",
+      xmlSourceNotFound: "XML source not found",
+      emptyValue: "(empty value)",
+      boundFieldsInTemplate: "Bound fields in the template layers: {fields}",
+      noBoundFieldsInTemplate: "No bound text layers among this board's direct child layers yet. Bind their text layers first.",
+      remarkRequiredError: "A remark is required for every XPath.",
+      chooseXmlSourceFirst: "Choose an XML source first.",
+      repeaterXPathRequired: "Repeater XPath is required.",
+      refreshing: "Refreshing…",
+      xpathEntriesSaved: "XPath entries saved.",
+      xmlSourceSaved: "XML source saved in plugin data.",
+      pictureSourceNotFoundSkipped: "A picture's XML source was not found and was skipped.",
+      repeaterSourceNotFoundSkipped: "A repeater's XML source was not found and was skipped.",
+      updatedLayers: "Updated {count} layer(s).{suffix}",
+      errorsSuffix: " {count} error(s): {list}",
+      selectNode: "Select {name}",
+      validXml: "Valid XML",
+      unsavedChanges: "Unsaved changes",
+      xmlFormatted: "XML formatted",
+      cleanedTagSeparators: "Valid XML. Removed {count} tag separator characters.",
+      importCancelled: "Import cancelled: the draft changed while the file was loading.",
+      importFailed: "Import failed (UTF-8 required): {message}",
+      savingSource: "Saving source...",
+      editorPosition: "Line {line}, column {column} | {lines} lines | {invisible} U+200B",
+      unsupportedImageFormat: "Unsupported or unrecognized image format.",
+      xmlMustNotBeEmpty: "XML must not be empty",
+      invalidXml: "Invalid XML: {detail}",
+      parseError: "Parse error",
+      missingXPath: "Missing XPath",
+      invalidXPath: "Invalid XPath or unknown namespace prefix",
+      xpathNoMatches: "XPath has no matches",
+      missingXmlOrPath: "Missing XML or path",
+      repeaterMustSelectSet: "Repeater XPath must select a set of elements.",
+      repeaterNoMatchesPreview: "Repeater XPath has no matches to preview against.",
+    },
+    de: {
+      noSelection: "Keine einzelne Ebene ausgewählt.",
+      typeText: "Text",
+      typePicture: "Bild",
+      typeBoard: "Board",
+      typeLayer: "Ebene",
+      xpathLabel: "XPath",
+      chooseNode: "XML-Knoten wählen",
+      repeaterContextNote: "Innerhalb eines Repeater-Containers: Vorschau und Auswahl verwenden das erste Trefferelement als Kontext.",
+      repeaterCloneNote: "Diese Ebene ist eine generierte Repeater-Instanz. Bearbeite den XPath an der Original-Ebene im Repeater-Container.",
+      valuePreview: "Wertvorschau",
+      applyBinding: "Bindung anwenden",
+      removeBinding: "Bindung entfernen",
+      applyPicture: "Bild anwenden",
+      removePicture: "Bild entfernen",
+      remarkRequiredLabel: "Bemerkung (erforderlich)",
+      addXPath: "XPath hinzufügen",
+      saveXPath: "XPath speichern",
+      clear: "Leeren",
+      cancelEdit: "Bearbeitung abbrechen",
+      repeaterXPathLabel: "XPath (Repeater)",
+      selectNodes: "Knoten wählen",
+      apply: "Anwenden",
+      removeRepeater: "Repeater entfernen",
+      documentXmlSource: "XML-Quelle des Dokuments",
+      selectXmlSourcePlaceholder: "XML-Quelle wählen",
+      newXmlSource: "Neue XML-Quelle",
+      editXmlSource: "XML-Quelle bearbeiten",
+      sourceXml: "Quell-XML",
+      refreshAll: "Alle Bindungen aktualisieren",
+      pickerTitle: "XML-Knoten wählen",
+      preferIds: "Eindeutige ID-Attribute bevorzugen",
+      xmlNodes: "XML-Knoten",
+      cancel: "Abbrechen",
+      editorTitle: "XML-Quelleneditor",
+      sourceName: "Quellenname",
+      importXmlFile: "XML-Datei importieren",
+      validateXml: "XML validieren",
+      prettyPrint: "Formatieren",
+      cleanTagSeparators: "Tag-Trenner bereinigen",
+      xmlSourceCode: "XML-Quellcode",
+      refreshAfterSaving: "Bindungen nach dem Speichern aktualisieren",
+      saveSource: "Quelle speichern",
+      close: "Schließen",
+      discardAndClose: "Verwerfen und schließen",
+      noXPathEntries: "Keine XPath-Einträge.",
+      editXPathButton: "XPath bearbeiten",
+      deleteEntry: "Eintrag löschen",
+      deleteXPath: "XPath {path} löschen",
+      remarkFor: "Bemerkung für {path}",
+      xmlSourceNotFound: "XML-Quelle nicht gefunden",
+      emptyValue: "(leerer Wert)",
+      boundFieldsInTemplate: "Gebundene Felder in den Vorlagen-Ebenen: {fields}",
+      noBoundFieldsInTemplate: "Noch keine gebundenen Textebenen unter den direkten Kind-Ebenen dieses Boards. Zuerst deren Textebenen binden.",
+      remarkRequiredError: "Für jeden XPath ist eine Bemerkung erforderlich.",
+      chooseXmlSourceFirst: "Wähle zuerst eine XML-Quelle.",
+      repeaterXPathRequired: "Repeater-XPath ist erforderlich.",
+      refreshing: "Wird aktualisiert…",
+      xpathEntriesSaved: "XPath-Einträge gespeichert.",
+      xmlSourceSaved: "XML-Quelle in den Plugin-Daten gespeichert.",
+      pictureSourceNotFoundSkipped: "Die XML-Quelle eines Bildes wurde nicht gefunden und wurde übersprungen.",
+      repeaterSourceNotFoundSkipped: "Die XML-Quelle eines Repeaters wurde nicht gefunden und wurde übersprungen.",
+      updatedLayers: "{count} Ebene(n) aktualisiert.{suffix}",
+      errorsSuffix: " {count} Fehler: {list}",
+      selectNode: "{name} wählen",
+      validXml: "Gültiges XML",
+      unsavedChanges: "Ungespeicherte Änderungen",
+      xmlFormatted: "XML formatiert",
+      cleanedTagSeparators: "Gültiges XML. {count} Tag-Trennzeichen entfernt.",
+      importCancelled: "Import abgebrochen: Der Entwurf hat sich während des Ladens geändert.",
+      importFailed: "Import fehlgeschlagen (UTF-8 erforderlich): {message}",
+      savingSource: "Quelle wird gespeichert...",
+      editorPosition: "Zeile {line}, Spalte {column} | {lines} Zeilen | {invisible} U+200B",
+      unsupportedImageFormat: "Nicht unterstütztes oder nicht erkanntes Bildformat.",
+      xmlMustNotBeEmpty: "XML darf nicht leer sein",
+      invalidXml: "Ungültiges XML: {detail}",
+      parseError: "Parse-Fehler",
+      missingXPath: "XPath fehlt",
+      invalidXPath: "Ungültiger XPath oder unbekanntes Namespace-Präfix",
+      xpathNoMatches: "XPath hat keine Treffer",
+      missingXmlOrPath: "XML oder Pfad fehlt",
+      repeaterMustSelectSet: "Repeater-XPath muss eine Knotenmenge auswählen.",
+      repeaterNoMatchesPreview: "Repeater-XPath hat keine Treffer für die Vorschau.",
+      // Backend status/error keys (plugin.js) - EN falls back to the message plugin.js already sends as "text".
+      selectRepeaterContainer: "Wähle den Repeater-Container aus und versuche es erneut.",
+      xmlSourceChangedMissingReload: "Die XML-Quelle hat sich geändert oder fehlt. Vor dem erneuten Anwenden neu laden.",
+      missingRepeaterInstanceData: "Repeater-Instanzdaten fehlen.",
+      repeaterContainerNoChildren: "Der Repeater-Container hat keine Kind-Ebenen zum Wiederholen.",
+      generatedRepeaterInstances: "{count} Repeater-Instanz(en) erzeugt.",
+      selectRectangleTryAgain: "Wähle ein Ziel-Rechteck aus und versuche es erneut.",
+      selectionOrXmlChanged: "Auswahl oder XML hat sich geändert. Neu laden und erneut anwenden.",
+      repeaterCloneEditOriginal: "Diese Ebene ist eine generierte Repeater-Instanz. Bearbeite den XPath an der Original-Ebene.",
+      boundLayer: "„{name}“ gebunden.",
+      sourceFileChangedReopenEditor: "Die Quelldatei hat sich geändert. Editor erneut öffnen.",
+      xmlSourceNotFoundDraftNotSaved: "XML-Quelle nicht gefunden. Dein Entwurf wurde nicht gespeichert.",
+      sourceChangedSinceOpenedDraftNotSaved: "Die Quelle hat sich seit dem Öffnen des Editors geändert. Dein Entwurf wurde nicht gespeichert.",
+      xmlMustNotBeEmptyPeriod: "XML darf nicht leer sein.",
+      repeaterRemoved: "Repeater entfernt.",
+      selectTargetTextLayerValidSource: "Wähle eine Ziel-Textebene und eine gültige XML-Quelle.",
+      removedBindingFrom: "Bindung von „{name}“ entfernt.",
+      selectOriginalNonTextLayer: "Wähle die ursprüngliche Nicht-Text-Ebene aus und versuche es erneut.",
+      xpathAnnotationsChangedReload: "XPath-Anmerkungen haben sich geändert. Vor dem erneuten Speichern neu laden.",
+      xpathAnnotationNoLongerExists: "XPath-Anmerkung existiert nicht mehr. Vor dem erneuten Speichern neu laden.",
+      remarkRequiredShort: "Eine Bemerkung ist erforderlich.",
+      xmlSourceChangedMissingReloadSave: "Die XML-Quelle hat sich geändert oder fehlt. Vor dem erneuten Speichern neu laden.",
+      xpathAndRemarkRequired: "XPath und Bemerkung sind erforderlich.",
+      invalidBase64Image: "Ungültige Base64-Bilddaten.",
+      missingImageData: "Bilddaten fehlen.",
+      unsupportedXmlSourceStorage: "Nicht unterstützter Speicher für XML-Quellen. Bestehende Daten wurden nicht geändert.",
+      unsupportedAnnotations: "Nicht unterstützte XPath-Anmerkungen. Bestehende Daten wurden nicht geändert.",
+      unsupportedRepeaterConfig: "Nicht unterstützte Repeater-Konfiguration. Bestehende Daten wurden nicht geändert.",
+      unsupportedRepeaterInstances: "Nicht unterstützte Repeater-Instanzliste. Bestehende Daten wurden nicht geändert.",
+    },
+  };
+  function t(key, params) {
+    const dict = I18N[LANG] || I18N.en;
+    let text = dict[key] ?? I18N.en[key] ?? key;
+    if (params) for (const name of Object.keys(params)) text = text.replaceAll(`{${name}}`, params[name]);
+    return text;
+  }
+  function translateStaticMarkup() {
+    for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = t(el.getAttribute("data-i18n"));
+    for (const el of document.querySelectorAll("[data-i18n-title]")) el.title = t(el.getAttribute("data-i18n-title"));
+    for (const el of document.querySelectorAll("[data-i18n-aria]")) el.setAttribute("aria-label", t(el.getAttribute("data-i18n-aria")));
+  }
 
   function effectiveAncestorRepeater() {
     if (selection?.type !== "text" && selection?.type !== "rectangle") return null;
@@ -235,10 +443,7 @@
   }
 
   function renderSource() {
-    $("sourceName").textContent = source ? source.name : selection?.sourceId ? "Bound XML source not found." : "No source selected.";
-    $("sourceName").title = source?.id || "";
     $("xmlPreview").value = source?.characters || "";
-    $("sourceStorage").textContent = source ? "Stored in this document" : "";
     $("editSource").disabled = !source;
     $("pickXPath").disabled = !source || !selection || ((selection.type === "text" || selection.type === "rectangle") && selection.isRepeaterClone);
     $("pickRepeaterNodes").disabled = !source || selection?.type !== "board";
@@ -250,9 +455,9 @@
     const isPicture = selection?.type === "rectangle";
     const isOtherNonText = !!selection && !isText && !isBoard && !isPicture;
     const isClone = (isText || isPicture) && selection.isRepeaterClone;
-    const typeLabel = isText ? "Text" : isPicture ? "Picture" : isBoard ? "Board" : isOtherNonText ? "Layer" : "";
-    $("inspectorTitle").textContent = typeLabel ? `XPath Inspector \u2014 ${typeLabel}` : "XPath Inspector";
-    $("targetName").textContent = selection ? selection.name : "No single layer selected.";
+    const typeLabel = isText ? t("typeText") : isPicture ? t("typePicture") : isBoard ? t("typeBoard") : isOtherNonText ? t("typeLayer") : "";
+    $("inspectorTitle").textContent = typeLabel || "XPath Inspector";
+    $("targetName").textContent = selection ? selection.name : t("noSelection");
     $("targetName").title = selection?.id || "";
     $("targetName").hidden = !isOtherNonText;
     $("path").disabled = !selection || isClone;
@@ -264,7 +469,7 @@
     $("clearBind").disabled = !(isText && selection.sourceId && selection.path);
     $("clearBindPicture").disabled = !(isPicture && selection.sourceId && selection.path);
     $("annotationControls").hidden = !isOtherNonText;
-    $("annotationList").hidden = !isOtherNonText && !isText && !isPicture;
+    $("annotationList").hidden = !isOtherNonText;
     $("repeaterControls").hidden = !isBoard;
     $("repeaterContextNote").hidden = !((isText || isPicture) && !isClone && effectiveAncestorRepeater());
     $("repeaterCloneNote").hidden = !isClone;
@@ -285,7 +490,7 @@
       const value = resolveValue(source.characters, $("path").value.trim(), (selection.type === "text" || selection.type === "rectangle") ? effectiveAncestorRepeater() : null);
       if (selection.type === "rectangle") {
         const mime = sniffImageMimeClient(value);
-        if (!mime) throw new Error("Unsupported or unrecognized image format.");
+        if (!mime) throw new Error(t("unsupportedImageFormat"));
         const img = document.createElement("img");
         img.src = `data:${mime};base64,${value.replace(/\s+/g, "")}`;
         img.style.maxWidth = "100%";
@@ -293,7 +498,7 @@
         $("valuePreview").append(img);
         $("bindPicture").disabled = selection.isRepeaterClone;
       } else {
-        $("valuePreview").textContent = value === "" ? "(empty value)" : value;
+        $("valuePreview").textContent = value === "" ? t("emptyValue") : value;
         $("bind").disabled = selection.type !== "text" || selection.isRepeaterClone;
       }
       $("saveAnnotation").disabled = selection.type === "text" || selection.type === "rectangle" || !$("annotationRemark").value.trim();
@@ -308,8 +513,8 @@
     annotationsSnapshot = selection?.annotationsRaw || "";
     $("path").value = "";
     $("annotationRemark").value = "";
-    $("saveAnnotation").textContent = "Add XPath";
-    $("cancelAnnotation").textContent = "Clear";
+    $("saveAnnotation").textContent = t("addXPath");
+    $("cancelAnnotation").textContent = t("clear");
     renderPreview();
   }
 
@@ -323,8 +528,8 @@
     if (repeaterDrafts.get(selection.id) === (selection.repeater?.path || "")) repeaterDrafts.delete(selection.id);
     const fields = (selection.repeaterFields || []).filter((field) => field.path);
     $("repeaterFields").textContent = fields.length
-      ? `Bound fields in the template layers: ${fields.map((field) => `${field.name} (${field.path})${field.kind === "picture" ? " [picture]" : ""}`).join(", ")}`
-      : "No bound text layers among this board's direct child layers yet. Bind their text layers first.";
+      ? t("boundFieldsInTemplate", { fields: fields.map((field) => `${field.name} (${field.path})${field.kind === "picture" ? ` [${t("typePicture").toLowerCase()}]` : ""}`).join(", ") })
+      : t("noBoundFieldsInTemplate");
     $("removeRepeater").disabled = !selection.repeater;
     $("applyRepeater").disabled = !source || !$("repeaterPath").value.trim();
   }
@@ -332,31 +537,9 @@
   function renderAnnotations() {
     $("annotationList").replaceChildren();
     if (!selection) return;
-    if (selection.type === "text" || selection.type === "rectangle") {
-      if (!selection.sourceId || !selection.path) return;
-      const item = document.createElement("div");
-      item.className = "annotation-entry";
-      const header = document.createElement("div");
-      header.className = "annotation-entry-header";
-      const path = document.createElement("code");
-      path.className = "annotation-path";
-      path.textContent = selection.path;
-      const remove = document.createElement("button");
-      remove.className = "annotation-delete";
-      remove.textContent = "\u{1F5D1}";
-      remove.title = "Remove binding";
-      remove.setAttribute("aria-label", `Remove binding ${selection.path}`);
-      remove.onclick = () => send({ type: "unbind", targetId: selection?.id });
-      header.append(path, remove);
-      const sourceName = document.createElement("p");
-      sourceName.className = "muted annotation-source";
-      sourceName.textContent = sourceOptions.find((option) => option.id === selection.sourceId)?.name || "XML source not found";
-      item.append(header, sourceName);
-      $("annotationList").append(item);
-      return;
-    }
+    if (selection.type === "text" || selection.type === "rectangle") return;
     const entries = selection.annotations || [];
-    if (!entries.length) $("annotationList").textContent = "No XPath entries.";
+    if (!entries.length) $("annotationList").textContent = t("noXPathEntries");
     for (const entry of entries) {
       const item = document.createElement("div");
       item.className = "annotation-entry";
@@ -368,14 +551,14 @@
       path.textContent = entry.path;
       const edit = document.createElement("button");
       edit.className = "annotation-edit";
-      edit.textContent = "Edit XPath";
+      edit.textContent = t("editXPathButton");
       edit.onclick = () => {
         editingAnnotationId = entry.id;
         annotationsSnapshot = selection.annotationsRaw || "";
         $("path").value = entry.path;
         $("annotationRemark").value = entry.remark;
-        $("saveAnnotation").textContent = "Save XPath";
-        $("cancelAnnotation").textContent = "Cancel edit";
+        $("saveAnnotation").textContent = t("saveXPath");
+        $("cancelAnnotation").textContent = t("cancelEdit");
         if (source?.id !== entry.sourceId) {
           source = null;
           $("sourceSelect").value = entry.sourceId;
@@ -388,25 +571,25 @@
       const remove = document.createElement("button");
       remove.className = "annotation-delete";
       remove.textContent = "\u{1F5D1}";
-      remove.title = "Delete entry";
-      remove.setAttribute("aria-label", `Delete XPath ${entry.path}`);
+      remove.title = t("deleteEntry");
+      remove.setAttribute("aria-label", t("deleteXPath", { path: entry.path }));
       remove.onclick = () => send({ type: "delete-annotation", ...annotationContext(), annotationId: entry.id, originalAnnotations: selection.annotationsRaw || "" });
       header.append(path, edit, remove);
 
       const sourceName = document.createElement("p");
       sourceName.className = "muted annotation-source";
-      sourceName.textContent = sourceOptions.find((option) => option.id === entry.sourceId)?.name || "XML source not found";
+      sourceName.textContent = sourceOptions.find((option) => option.id === entry.sourceId)?.name || t("xmlSourceNotFound");
 
       const remark = document.createElement("textarea");
       remark.className = "annotation-remark";
       remark.value = entry.remark;
       remark.rows = 2;
-      remark.setAttribute("aria-label", `Remark for ${entry.path}`);
+      remark.setAttribute("aria-label", t("remarkFor", { path: entry.path }));
       remark.onblur = () => {
         const value = remark.value.trim();
         if (!value) {
           remark.value = entry.remark;
-          setStatus("A remark is required for every XPath.", "error");
+          setStatus(t("remarkRequiredError"), "error");
           return;
         }
         if (value === entry.remark) return;
@@ -426,11 +609,11 @@
   }
 
   function parseXml(xml) {
-    if (!xml.trim()) throw new Error("XML must not be empty");
+    if (!xml.trim()) throw new Error(t("xmlMustNotBeEmpty"));
     const doc = new DOMParser().parseFromString(xml, "application/xml");
     const parserError = doc.getElementsByTagNameNS("http://www.mozilla.org/newlayout/xml/parsererror.xml", "parsererror")[0]
       || doc.getElementsByTagNameNS("http://www.w3.org/1999/xhtml", "parsererror")[0];
-    if (parserError) throw new Error(`Invalid XML: ${parserError.textContent?.trim() || "Parse error"}`);
+    if (parserError) throw new Error(t("invalidXml", { detail: parserError.textContent?.trim() || t("parseError") }));
     return doc;
   }
 
@@ -495,7 +678,7 @@
       button.className = "picker-node";
       const value = attribute ? node.value : node.children.length ? "" : node.textContent;
       button.textContent = `${attribute ? "@" : ""}${node.nodeName}${value ? ` = ${shortened(value)}` : ""}`;
-      button.title = `Select ${node.nodeName}`;
+      button.title = t("selectNode", { name: node.nodeName });
       button.onclick = (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -564,36 +747,36 @@
   }
 
   function resolveNode(doc, contextNode, path) {
-    if (!path) throw new Error("Missing XPath");
+    if (!path) throw new Error(t("missingXPath"));
     let result;
     try {
       result = doc.evaluate(path, contextNode, doc.createNSResolver(doc.documentElement), XPathResult.ANY_TYPE, null);
     } catch {
-      throw new Error("Invalid XPath or unknown namespace prefix");
+      throw new Error(t("invalidXPath"));
     }
 
     if (result.resultType === XPathResult.STRING_TYPE) return htmlToText(result.stringValue);
     if (result.resultType === XPathResult.NUMBER_TYPE) return String(result.numberValue);
     if (result.resultType === XPathResult.BOOLEAN_TYPE) return String(result.booleanValue);
     const node = doc.evaluate(path, contextNode, doc.createNSResolver(doc.documentElement), XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-    if (!node) throw new Error("XPath has no matches");
+    if (!node) throw new Error(t("xpathNoMatches"));
     return htmlToText(node.textContent?.trim() ?? "");
   }
 
   function resolveXml(xml, path) {
-    if (!xml || !path) throw new Error("Missing XML or path");
+    if (!xml || !path) throw new Error(t("missingXmlOrPath"));
     const doc = parseXml(normalizeXmlMarkup(xml));
     return resolveNode(doc, doc, path);
   }
 
   function resolveNodeSet(xml, path) {
-    if (!xml || !path) throw new Error("Missing XML or path");
+    if (!xml || !path) throw new Error(t("missingXmlOrPath"));
     const doc = parseXml(normalizeXmlMarkup(xml));
     let result;
     try {
       result = doc.evaluate(path, doc, doc.createNSResolver(doc.documentElement), XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
     } catch {
-      throw new Error("Repeater XPath must select a set of elements.");
+      throw new Error(t("repeaterMustSelectSet"));
     }
     const nodes = [];
     for (let i = 0; i < result.snapshotLength; i++) nodes.push(result.snapshotItem(i));
@@ -603,7 +786,7 @@
   function resolveValue(xml, path, ancestorRepeater) {
     if (!ancestorRepeater) return resolveXml(xml, path);
     const { doc, nodes } = resolveNodeSet(xml, ancestorRepeater.path);
-    if (!nodes.length) throw new Error("Repeater XPath has no matches to preview against.");
+    if (!nodes.length) throw new Error(t("repeaterNoMatchesPreview"));
     return resolveNode(doc, nodes[0], path);
   }
 
@@ -650,9 +833,9 @@
     const line = beforeCursor.split("\n").length;
     const column = beforeCursor.length - beforeCursor.lastIndexOf("\n");
     const invisibleCount = (xml.match(/\u200b/g) || []).length;
-    $("editorPosition").textContent = `Line ${line}, column ${column} | ${xml.split("\n").length} lines | ${invisibleCount} U+200B`;
+    $("editorPosition").textContent = t("editorPosition", { line, column, lines: xml.split("\n").length, invisible: invisibleCount });
     const dirty = editorIsDirty();
-    $("closeEditor").textContent = dirty ? "Discard and close" : "Close";
+    $("closeEditor").textContent = dirty ? t("discardAndClose") : t("close");
     for (const id of ["xmlEditor", "xmlImport", "validateXml", "prettyPrint", "cleanXml", "closeEditor", "refreshAfterSave", "editorSourceName"]) $(id).disabled = savingSource;
     $("saveSource").disabled = savingSource || !xml.trim() || !$("editorSourceName").value.trim();
   }
@@ -660,7 +843,7 @@
   function validateEditor() {
     try {
       parseXml($("xmlEditor").value);
-      editorDiagnostic("Valid XML", "ok");
+      editorDiagnostic(t("validXml"), "ok");
       return true;
     } catch (error) {
       editorDiagnostic(error.message || String(error), "error");
@@ -687,7 +870,7 @@
   $("editorSourceName").oninput = updateEditorState;
   $("xmlEditor").onscroll = syncHighlightScroll;
   $("xmlEditor").oninput = () => {
-    editorDiagnostic("Unsaved changes");
+    editorDiagnostic(t("unsavedChanges"));
     updateEditorState();
   };
   $("xmlEditor").onkeyup = updateEditorState;
@@ -700,7 +883,7 @@
       $("xmlEditor").select();
       if (!document.execCommand("insertText", false, formatted)) $("xmlEditor").setRangeText(formatted, 0, $("xmlEditor").value.length, "start");
       updateEditorState();
-      editorDiagnostic("XML formatted", "ok");
+      editorDiagnostic(t("xmlFormatted"), "ok");
     } catch (error) {
       editorDiagnostic(error.message || String(error), "error");
     }
@@ -710,7 +893,7 @@
     $("xmlEditor").value = normalizeXmlMarkup(original);
     const removed = original.length - $("xmlEditor").value.length;
     updateEditorState();
-    if (validateEditor()) editorDiagnostic(`Valid XML. Removed ${removed} tag separator characters.`, "ok");
+    if (validateEditor()) editorDiagnostic(t("cleanedTagSeparators", { count: removed }), "ok");
   };
   $("xmlImport").onchange = async () => {
     const file = $("xmlImport").files[0];
@@ -722,21 +905,21 @@
       const xml = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       if (editorSession !== session || savingSource) return;
       if ($("xmlEditor").value !== originalDraft) {
-        editorDiagnostic("Import cancelled: the draft changed while the file was loading.", "error");
+        editorDiagnostic(t("importCancelled"), "error");
         return;
       }
       $("xmlEditor").value = xml;
       updateEditorState();
       validateEditor();
     } catch (error) {
-      if (editorSession === session) editorDiagnostic(`Import failed (UTF-8 required): ${error.message || String(error)}`, "error");
+      if (editorSession === session) editorDiagnostic(t("importFailed", { message: error.message || String(error) }), "error");
     }
   };
   $("saveSource").onclick = () => {
     if (!editorSession || savingSource || !validateEditor()) return;
     savingSource = true;
     updateEditorState();
-    editorDiagnostic("Saving source...");
+    editorDiagnostic(t("savingSource"));
     send({ type: "save-source", ...editorSession, name: $("editorSourceName").value.trim(), xml: $("xmlEditor").value });
   };
   $("closeEditor").onclick = () => {
@@ -745,7 +928,7 @@
   $("sourceEditor").oncancel = (event) => {
     if (savingSource || editorIsDirty()) {
       event.preventDefault();
-      if (!savingSource) editorDiagnostic("Unsaved changes", "error");
+      if (!savingSource) editorDiagnostic(t("unsavedChanges"), "error");
     }
   };
   $("sourceEditor").onclose = () => {
@@ -765,10 +948,6 @@
     if ($("xpathPicker").open) return;
     $("pickerTree").replaceChildren();
     send({ type: "editor-size", expanded: false });
-  };
-  $("reloadSource").onclick = () => {
-    if (selection && selection.type !== "text") resetAnnotationForm();
-    send({ type: "get-selection" });
   };
   $("path").oninput = renderPreview;
   $("annotationRemark").oninput = renderPreview;
@@ -797,7 +976,7 @@
   $("applyRepeater").onclick = () => {
     if (!selection || selection.type !== "board" || !source) return;
     const path = $("repeaterPath").value.trim();
-    if (!path) return setStatus("Repeater XPath is required.", "error");
+    if (!path) return setStatus(t("repeaterXPathRequired"), "error");
     try {
       const fields = (selection.repeaterFields || []).filter((field) => field.path);
       const instances = computeRepeaterInstances(source.characters, path, fields);
@@ -814,7 +993,7 @@
     if (!selection || selection.type === "text" || selection.type === "rectangle" || !source) return;
     const path = $("path").value.trim();
     const remark = $("annotationRemark").value.trim();
-    if (!remark) return setStatus("A remark is required for every XPath.", "error");
+    if (!remark) return setStatus(t("remarkRequiredError"), "error");
     try {
       resolveXml(source.characters, path);
       send({ type: "save-annotation", ...annotationContext(), annotationId: editingAnnotationId, originalAnnotations: annotationsSnapshot, sourceId: source.id, xml: source.characters, path, remark });
@@ -823,7 +1002,7 @@
     }
   };
   $("bind").onclick = () => {
-    if (!source) return setStatus("Choose an XML source first.", "error");
+    if (!source) return setStatus(t("chooseXmlSourceFirst"), "error");
     if (selection?.type === "text" && selection.isRepeaterClone) return;
     const path = $("path").value.trim();
     try {
@@ -838,7 +1017,7 @@
     send({ type: "unbind", targetId: selection?.id });
   };
   $("bindPicture").onclick = () => {
-    if (!source) return setStatus("Choose an XML source first.", "error");
+    if (!source) return setStatus(t("chooseXmlSourceFirst"), "error");
     if (selection?.type !== "rectangle" || selection.isRepeaterClone) return;
     const path = $("path").value.trim();
     try {
@@ -853,7 +1032,7 @@
     send({ type: "unbind", targetId: selection?.id });
   };
   $("refresh").onclick = () => {
-    setStatus("Refreshing…", "muted");
+    setStatus(t("refreshing"), "muted");
     send({ type: "refresh-all" });
   };
 
@@ -868,8 +1047,8 @@
       if (changedLayer) {
         editingAnnotationId = "";
         $("annotationRemark").value = "";
-        $("saveAnnotation").textContent = "Add XPath";
-        $("cancelAnnotation").textContent = "Clear";
+        $("saveAnnotation").textContent = t("addXPath");
+        $("cancelAnnotation").textContent = t("clear");
       }
       if (changedLayer || (!$("path").value && !$("annotationRemark").value && !editingAnnotationId)) annotationsSnapshot = msg.shape?.annotationsRaw || "";
       pageId = msg.pageId;
@@ -885,7 +1064,7 @@
       source = msg.source;
       sourceOptions = msg.sources || [];
       $("sourceSelect").replaceChildren();
-      const placeholder = new Option("Select XML source", "");
+      const placeholder = new Option(t("selectXmlSourcePlaceholder"), "");
       placeholder.disabled = true;
       $("sourceSelect").add(placeholder);
       for (const item of msg.sources || []) $("sourceSelect").add(new Option(item.name, item.id));
@@ -894,29 +1073,29 @@
       renderSelection();
     }
 
-    if (msg.type === "status") setStatus(msg.text, msg.level);
+    if (msg.type === "status") setStatus(msg.key ? t(msg.key, msg.params) : msg.text, msg.level);
     if (msg.type === "annotation-saved" && selection?.id === msg.targetId) {
       resetAnnotationForm();
-      setStatus("XPath entries saved.", "ok");
+      setStatus(t("xpathEntriesSaved"), "ok");
     }
 
     if (msg.type === "source-save-error" && editorSession) {
       savingSource = false;
       updateEditorState();
-      editorDiagnostic(msg.text, "error");
+      editorDiagnostic(msg.key ? t(msg.key, msg.params) : msg.text, "error");
     }
 
     if (msg.type === "source-saved" && editorSession && editorSession.sourceId === msg.originalSourceId) {
       savingSource = false;
       $("sourceEditor").close();
-      setStatus("XML source saved in plugin data.", "ok");
+      setStatus(t("xmlSourceSaved"), "ok");
       if ($("refreshAfterSave").checked) send({ type: "refresh-all" });
     }
 
     if (msg.type === "refresh-data") {
       const results = (msg.items || []).map((item) => {
         if (item.xml == null) {
-          return { targetId: item.targetId, ok: false, error: "XML source not found" };
+          return { targetId: item.targetId, ok: false, error: t("xmlSourceNotFound") };
         }
         try {
           return { targetId: item.targetId, ok: true, value: resolveXml(item.xml, item.path) };
@@ -928,7 +1107,7 @@
 
       for (const picture of msg.pictures || []) {
         if (picture.xml == null) {
-          setStatus("A picture's XML source was not found and was skipped.", "error");
+          setStatus(t("pictureSourceNotFoundSkipped"), "error");
           continue;
         }
         try {
@@ -941,7 +1120,7 @@
 
       for (const repeater of msg.repeaters || []) {
         if (repeater.xml == null) {
-          setStatus("A repeater's XML source was not found and was skipped.", "error");
+          setStatus(t("repeaterSourceNotFoundSkipped"), "error");
           continue;
         }
         try {
@@ -954,11 +1133,12 @@
     }
 
     if (msg.type === "refresh-result") {
-      const suffix = msg.errors?.length ? ` ${msg.errors.length} error(s): ${msg.errors.join("; ")}` : "";
-      setStatus(`Updated ${msg.updated} layer(s).${suffix}`, msg.errors?.length ? "error" : "ok");
+      const suffix = msg.errors?.length ? t("errorsSuffix", { count: msg.errors.length, list: msg.errors.join("; ") }) : "";
+      setStatus(t("updatedLayers", { count: msg.updated, suffix }), msg.errors?.length ? "error" : "ok");
     }
   });
 
+  if (typeof document.querySelectorAll === "function") translateStaticMarkup();
   send({ type: "get-selection" });
 </script>
 </body>

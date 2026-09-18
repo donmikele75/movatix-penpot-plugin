@@ -6,11 +6,19 @@ const DEFAULT_SOURCE_KEY = "xml-binding-default-source";
 const ANNOTATIONS_KEY = "xml-binding-annotations";
 const REPEATER_KEY = "xml-binding-repeater";
 const REPEATER_INSTANCES_KEY = "xml-binding-repeater-instances";
+const ORIGINAL_TEXT_KEY = "xml-binding-original-text";
 const REPEATER_GAP = 24;
+
+function keyedError(message, i18nKey, i18nParams) {
+  const error = new Error(message);
+  error.i18nKey = i18nKey;
+  if (i18nParams) error.i18nParams = i18nParams;
+  return error;
+}
 
 function base64ToBytes(base64) {
   const clean = base64.replace(/\s+/g, "");
-  if (!clean.length || clean.length % 4 !== 0) throw new Error("Invalid base64 image data.");
+  if (!clean.length || clean.length % 4 !== 0) throw keyedError("Invalid base64 image data.", "invalidBase64Image");
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   const lookup = new Int16Array(256).fill(-1);
   for (let i = 0; i < chars.length; i++) lookup[chars.charCodeAt(i)] = i;
@@ -23,7 +31,7 @@ function base64ToBytes(base64) {
     const c1 = lookup[clean.charCodeAt(i + 1)];
     const c2 = clean.charCodeAt(i + 2) === 61 ? 0 : lookup[clean.charCodeAt(i + 2)];
     const c3 = clean.charCodeAt(i + 3) === 61 ? 0 : lookup[clean.charCodeAt(i + 3)];
-    if (c0 < 0 || c1 < 0 || c2 < 0 || c3 < 0) throw new Error("Invalid base64 image data.");
+    if (c0 < 0 || c1 < 0 || c2 < 0 || c3 < 0) throw keyedError("Invalid base64 image data.", "invalidBase64Image");
     const triple = (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
     if (byteIndex < outLength) bytes[byteIndex++] = (triple >> 16) & 0xff;
     if (byteIndex < outLength) bytes[byteIndex++] = (triple >> 8) & 0xff;
@@ -52,13 +60,13 @@ function hashString(value) {
 const uploadedImageCache = new Map();
 
 async function resolveImageData(base64) {
-  if (typeof base64 !== "string" || !base64.trim()) throw new Error("Missing image data.");
+  if (typeof base64 !== "string" || !base64.trim()) throw keyedError("Missing image data.", "missingImageData");
   const key = hashString(base64);
   const cached = uploadedImageCache.get(key);
   if (cached) return cached;
   const bytes = base64ToBytes(base64);
   const mimeType = sniffImageMime(bytes);
-  if (!mimeType) throw new Error("Unsupported or unrecognized image format.");
+  if (!mimeType) throw keyedError("Unsupported or unrecognized image format.", "unsupportedImageFormat");
   const imageData = await penpot.uploadMediaData(`picture-${key}`, bytes, mimeType);
   uploadedImageCache.set(key, imageData);
   return imageData;
@@ -78,7 +86,7 @@ function readSources() {
   const data = JSON.parse(raw);
   if (data.version !== 1 || !Array.isArray(data.sources) || data.sources.some((source) =>
     !source || typeof source.id !== "string" || typeof source.name !== "string" || typeof source.characters !== "string")) {
-    throw new Error("Unsupported XML source storage. Existing data was not changed.");
+    throw keyedError("Unsupported XML source storage. Existing data was not changed.", "unsupportedXmlSourceStorage");
   }
   return data.sources;
 }
@@ -128,7 +136,7 @@ function readAnnotations(shape) {
   if (data.version !== 1 || !Array.isArray(data.entries) || data.entries.some((entry) =>
     !entry || [entry.id, entry.sourceId, entry.path, entry.remark].some((value) => typeof value !== "string" || !value.trim())) ||
     new Set(data.entries.map((entry) => entry.id)).size !== data.entries.length) {
-    throw new Error("Unsupported XPath annotations. Existing data was not changed.");
+    throw keyedError("Unsupported XPath annotations. Existing data was not changed.", "unsupportedAnnotations");
   }
   return data.entries;
 }
@@ -147,7 +155,7 @@ function readRepeater(shape) {
   if (!raw) return null;
   const data = JSON.parse(raw);
   if (data.version !== 1 || typeof data.sourceId !== "string" || !data.sourceId.trim() || typeof data.path !== "string" || !data.path.trim()) {
-    throw new Error("Unsupported repeater configuration. Existing data was not changed.");
+    throw keyedError("Unsupported repeater configuration. Existing data was not changed.", "unsupportedRepeaterConfig");
   }
   return data;
 }
@@ -157,7 +165,7 @@ function readRepeaterInstanceIds(shape) {
   if (!raw) return [];
   const ids = JSON.parse(raw);
   if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) {
-    throw new Error("Unsupported repeater instance list. Existing data was not changed.");
+    throw keyedError("Unsupported repeater instance list. Existing data was not changed.", "unsupportedRepeaterInstances");
   }
   return ids;
 }
@@ -226,7 +234,7 @@ function sendSelection(preferredSourceId) {
       isRepeaterClone = isRepeaterInstanceMember(shape);
     }
   } catch (error) {
-    penpot.ui.sendMessage({ type: "status", level: "error", text: error.message || String(error) });
+    penpot.ui.sendMessage({ type: "status", level: "error", text: error.message || String(error), key: error.i18nKey, params: error.i18nParams });
     return;
   }
   const sourceId = (typeof preferredSourceId === "string" && preferredSourceId) || shape?.getPluginData(SOURCE_KEY) || annotations[0]?.sourceId || penpot.currentFile?.getPluginData(DEFAULT_SOURCE_KEY) || "";
@@ -330,23 +338,23 @@ sendSelection();
 
 async function handleApplyRepeater(message) {
   const target = penpot.currentPage?.getShapeById(message.targetId);
-  const fail = (text) => penpot.ui.sendMessage({ type: "status", level: "error", text });
+  const fail = (text, key, params) => penpot.ui.sendMessage({ type: "status", level: "error", text, key, params });
   if (!target || target.type !== "board" ||
     !penpot.currentFile || message.fileId !== penpot.currentFile.id || message.pageId !== penpot.currentPage?.id) {
-    fail("Select the repeater container and try again.");
+    fail("Select the repeater container and try again.", "selectRepeaterContainer");
     return;
   }
   const source = getSource(message.sourceId);
   if (!source || source.characters !== message.xml) {
-    fail("XML source changed or is missing. Reload before applying again.");
+    fail("XML source changed or is missing. Reload before applying again.", "xmlSourceChangedMissingReload");
     return;
   }
   if (typeof message.path !== "string" || !message.path.trim()) {
-    fail("Repeater XPath is required.");
+    fail("Repeater XPath is required.", "repeaterXPathRequired");
     return;
   }
   if (!Array.isArray(message.instances)) {
-    fail("Missing repeater instance data.");
+    fail("Missing repeater instance data.", "missingRepeaterInstanceData");
     return;
   }
   const page = penpot.currentPage;
@@ -354,7 +362,7 @@ async function handleApplyRepeater(message) {
 
   const templateChildren = templateChildrenOf(target);
   if (!templateChildren.length) {
-    fail("The repeater container has no child layers to repeat.");
+    fail("The repeater container has no child layers to repeat.", "repeaterContainerNoChildren");
     return;
   }
   for (const id of readRepeaterInstanceIds(target)) page.getShapeById(id)?.remove();
@@ -388,31 +396,31 @@ async function handleApplyRepeater(message) {
       }
     }
   } catch (error) {
-    fail(error.message || String(error));
+    fail(error.message || String(error), error.i18nKey, error.i18nParams);
     return;
   }
 
   target.setPluginData(REPEATER_KEY, JSON.stringify({ version: 1, sourceId: source.id, path: message.path.trim() }));
   target.setPluginData(REPEATER_INSTANCES_KEY, JSON.stringify(createdIds));
-  penpot.ui.sendMessage({ type: "status", level: "ok", text: `Generated ${message.instances.length} repeater instance(s).` });
+  penpot.ui.sendMessage({ type: "status", level: "ok", text: `Generated ${message.instances.length} repeater instance(s).`, key: "generatedRepeaterInstances", params: { count: message.instances.length } });
   sendSelection(message.sourceId);
 }
 
 async function handleApplyPicture(message) {
   const target = getSelectedShape();
-  const fail = (text) => penpot.ui.sendMessage({ type: "status", level: "error", text });
+  const fail = (text, key, params) => penpot.ui.sendMessage({ type: "status", level: "error", text, key, params });
   if (!target || target.type !== "rectangle" || target.id !== message.targetId) {
-    fail("Select a target rectangle and try again.");
+    fail("Select a target rectangle and try again.", "selectRectangleTryAgain");
     return;
   }
   const source = getSource(message.sourceId);
   if (!source || source.characters !== message.xml) {
-    fail("Selection or XML changed. Reload and apply again.");
+    fail("Selection or XML changed. Reload and apply again.", "selectionOrXmlChanged");
     sendSelection();
     return;
   }
   if (isRepeaterInstanceMember(target)) {
-    fail("This layer is a generated repeater instance. Edit the XPath on the original layer instead.");
+    fail("This layer is a generated repeater instance. Edit the XPath on the original layer instead.", "repeaterCloneEditOriginal");
     sendSelection();
     return;
   }
@@ -420,12 +428,12 @@ async function handleApplyPicture(message) {
   try {
     await applyFieldValue(target, message.value);
   } catch (error) {
-    fail(error.message || String(error));
+    fail(error.message || String(error), error.i18nKey, error.i18nParams);
     return;
   }
   target.setPluginData(SOURCE_KEY, source.id);
   target.setPluginData(PATH_KEY, message.path.trim());
-  penpot.ui.sendMessage({ type: "status", level: "ok", text: `Bound “${target.name}”.` });
+  penpot.ui.sendMessage({ type: "status", level: "ok", text: `Bound “${target.name}”.`, key: "boundLayer", params: { name: target.name } });
   sendSelection();
 }
 
@@ -450,22 +458,22 @@ function handleMessage(message) {
   }
 
   if (message.type === "save-source") {
-    const fail = (text) => penpot.ui.sendMessage({ type: "source-save-error", text });
+    const fail = (text, key, params) => penpot.ui.sendMessage({ type: "source-save-error", text, key, params });
     if (!penpot.currentFile || message.fileId !== penpot.currentFile.id) {
-      fail("The source file changed. Reopen the editor.");
+      fail("The source file changed. Reopen the editor.", "sourceFileChangedReopenEditor");
       return;
     }
     const source = getSource(message.sourceId);
     if (message.sourceId && !source) {
-      fail("XML source not found. Your draft has not been saved.");
+      fail("XML source not found. Your draft has not been saved.", "xmlSourceNotFoundDraftNotSaved");
       return;
     }
     if (source && (source.characters !== message.originalXml || (typeof message.originalName === "string" && source.name !== message.originalName))) {
-      fail("The source changed since the editor was opened. Your draft has not been saved.");
+      fail("The source changed since the editor was opened. Your draft has not been saved.", "sourceChangedSinceOpenedDraftNotSaved");
       return;
     }
     if (typeof message.xml !== "string" || !message.xml.trim()) {
-      fail("XML must not be empty.");
+      fail("XML must not be empty.", "xmlMustNotBeEmptyPeriod");
       return;
     }
     try {
@@ -478,27 +486,27 @@ function handleMessage(message) {
       penpot.ui.sendMessage({ type: "source-saved", sourceId: id, originalSourceId: message.sourceId || "" });
       sendSelection(id);
     } catch (error) {
-      fail(error.message || String(error));
+      fail(error.message || String(error), error.i18nKey, error.i18nParams);
     }
     return;
   }
 
   if (message.type === "save-annotation" || message.type === "delete-annotation" || message.type === "update-annotation-remark") {
     const target = getSelectedShape();
-    const fail = (text) => penpot.ui.sendMessage({ type: "status", level: "error", text });
+    const fail = (text, key, params) => penpot.ui.sendMessage({ type: "status", level: "error", text, key, params });
     if (!target || target.type === "text" || target.type === "rectangle" || target.id !== message.targetId ||
       !penpot.currentFile || message.fileId !== penpot.currentFile.id || message.pageId !== penpot.currentPage?.id) {
-      fail("Select the original non-text layer and try again.");
+      fail("Select the original non-text layer and try again.", "selectOriginalNonTextLayer");
       return;
     }
     if ((target.getPluginData(ANNOTATIONS_KEY) || "") !== message.originalAnnotations) {
-      fail("XPath annotations changed. Reload before saving again.");
+      fail("XPath annotations changed. Reload before saving again.", "xpathAnnotationsChangedReload");
       return;
     }
     const entries = readAnnotations(target);
     const index = entries.findIndex((entry) => entry.id === message.annotationId);
     if (message.annotationId && index === -1) {
-      fail("XPath annotation no longer exists. Reload before saving again.");
+      fail("XPath annotation no longer exists. Reload before saving again.", "xpathAnnotationNoLongerExists");
       return;
     }
     if (message.type === "delete-annotation") {
@@ -507,18 +515,18 @@ function handleMessage(message) {
     } else if (message.type === "update-annotation-remark") {
       if (index === -1) return;
       if (typeof message.remark !== "string" || !message.remark.trim()) {
-        fail("A remark is required.");
+        fail("A remark is required.", "remarkRequiredShort");
         return;
       }
       entries[index] = { ...entries[index], remark: message.remark.trim() };
     } else {
       const source = getSource(message.sourceId);
       if (!source || source.characters !== message.xml) {
-        fail("XML source changed or is missing. Reload before saving again.");
+        fail("XML source changed or is missing. Reload before saving again.", "xmlSourceChangedMissingReloadSave");
         return;
       }
       if (typeof message.path !== "string" || !message.path.trim() || typeof message.remark !== "string" || !message.remark.trim()) {
-        fail("XPath and remark are required.");
+        fail("XPath and remark are required.", "xpathAndRemarkRequired");
         return;
       }
       const entry = {
@@ -546,7 +554,7 @@ function handleMessage(message) {
     if (page) for (const id of readRepeaterInstanceIds(target)) page.getShapeById(id)?.remove();
     target.setPluginData(REPEATER_KEY, "");
     target.setPluginData(REPEATER_INSTANCES_KEY, "");
-    penpot.ui.sendMessage({ type: "status", level: "ok", text: "Repeater removed." });
+    penpot.ui.sendMessage({ type: "status", level: "ok", text: "Repeater removed.", key: "repeaterRemoved" });
     sendSelection();
     return;
   }
@@ -555,24 +563,25 @@ function handleMessage(message) {
     const target = getSelectedText();
     const source = getSource(message.sourceId);
     if (!target || !source) {
-      penpot.ui.sendMessage({ type: "status", level: "error", text: "Select a target text layer and a valid XML source." });
+      penpot.ui.sendMessage({ type: "status", level: "error", text: "Select a target text layer and a valid XML source.", key: "selectTargetTextLayerValidSource" });
       return;
     }
     if (target.id !== message.targetId || source.characters !== message.xml) {
-      penpot.ui.sendMessage({ type: "status", level: "error", text: "Selection or XML changed. Reload and apply again." });
+      penpot.ui.sendMessage({ type: "status", level: "error", text: "Selection or XML changed. Reload and apply again.", key: "selectionOrXmlChanged" });
       sendSelection();
       return;
     }
     if (isRepeaterInstanceMember(target)) {
-      penpot.ui.sendMessage({ type: "status", level: "error", text: "This layer is a generated repeater instance. Edit the XPath on the original layer instead." });
+      penpot.ui.sendMessage({ type: "status", level: "error", text: "This layer is a generated repeater instance. Edit the XPath on the original layer instead.", key: "repeaterCloneEditOriginal" });
       sendSelection();
       return;
     }
     if (typeof message.path !== "string" || !message.path.trim() || typeof message.value !== "string") return;
+    if (!target.getPluginData(SOURCE_KEY)) target.setPluginData(ORIGINAL_TEXT_KEY, JSON.stringify({ version: 1, text: target.characters }));
     target.setPluginData(SOURCE_KEY, source.id);
     target.setPluginData(PATH_KEY, message.path.trim());
     target.characters = message.value;
-    penpot.ui.sendMessage({ type: "status", level: "ok", text: `Bound “${target.name}”.` });
+    penpot.ui.sendMessage({ type: "status", level: "ok", text: `Bound \u201c${target.name}\u201d.`, key: "boundLayer", params: { name: target.name } });
     sendSelection();
     return;
   }
@@ -585,9 +594,21 @@ function handleMessage(message) {
   if (message.type === "unbind") {
     const target = getSelectedShape();
     if (!target || (target.type !== "text" && target.type !== "rectangle") || target.id !== message.targetId) return;
+    if (target.type === "text") {
+      const rawOriginal = target.getPluginData(ORIGINAL_TEXT_KEY);
+      if (rawOriginal) {
+        try {
+          const original = JSON.parse(rawOriginal);
+          if (typeof original.text === "string") target.characters = original.text;
+        } catch {
+          // corrupt snapshot: leave the currently rendered text untouched
+        }
+      }
+      target.setPluginData(ORIGINAL_TEXT_KEY, "");
+    }
     target.setPluginData(SOURCE_KEY, "");
     target.setPluginData(PATH_KEY, "");
-    penpot.ui.sendMessage({ type: "status", level: "ok", text: `Removed binding from “${target.name}”.` });
+    penpot.ui.sendMessage({ type: "status", level: "ok", text: `Removed binding from \u201c${target.name}\u201d.`, key: "removedBindingFrom", params: { name: target.name } });
     sendSelection();
     return;
   }
@@ -625,7 +646,7 @@ function handleMessage(message) {
 
 penpot.ui.onMessage((message) => {
   const reportError = (error) => {
-    penpot.ui.sendMessage({ type: message.type === "save-source" ? "source-save-error" : "status", level: "error", text: error.message || String(error) });
+    penpot.ui.sendMessage({ type: message.type === "save-source" ? "source-save-error" : "status", level: "error", text: error.message || String(error), key: error.i18nKey, params: error.i18nParams });
   };
   try {
     const result = handleMessage(message);
