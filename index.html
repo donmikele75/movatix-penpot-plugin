@@ -16,6 +16,10 @@
     button:disabled { opacity: .45; cursor: default; }
     label { display: block; margin-bottom: 5px; font-weight: 600; }
     input, textarea, button, select { font: inherit; }
+    #inspectorTitle { margin: 0 0 10px; font-size: 15px; }
+    .field-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .field-heading label { margin: 0; }
+    .icon-btn { width: auto; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
     input, textarea, select { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px; border: 1px solid rgba(127,127,127,.5); background: transparent; }
     textarea { min-height: 100px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
     #path { min-height: 64px; margin: 0; font-size: 12px; }
@@ -88,22 +92,27 @@
 </head>
 <body>
   <section>
+    <h1 id="inspectorTitle">XPath Inspector</h1>
     <div id="targetName" class="muted">No single layer selected.</div>
     <div id="annotationList"></div>
     <div id="xpathSection">
-      <label for="path" style="margin-top:10px">XPath</label>
+      <div class="field-heading" style="margin-top:10px">
+        <label for="path">XPath</label>
+        <button id="pickXPath" class="icon-btn" disabled><span aria-hidden="true">🎯</span> Choose XML node</button>
+      </div>
       <textarea id="path" spellcheck="false" disabled></textarea>
-      <button id="pickXPath" style="margin-top:6px" disabled>Choose XML node</button>
       <div id="repeaterContextNote" class="muted" hidden>Inside a repeater container: preview and picker use the first matched element as context.</div>
       <div id="repeaterCloneNote" class="muted" hidden>This layer is a generated repeater instance. Edit the XPath on the original layer inside the repeater container instead.</div>
       <label for="valuePreview" style="margin-top:10px">Value preview</label>
       <output id="valuePreview" class="muted" aria-live="polite"></output>
     </div>
-    <div id="textBindingActions" style="margin-top:10px">
-      <button id="bind" class="primary" style="width:100%" disabled>Apply binding</button>
+    <div id="textBindingActions" class="row" style="margin-top:10px">
+      <button id="bind" class="primary" disabled>Apply binding</button>
+      <button id="clearBind" disabled>Remove binding</button>
     </div>
-    <div id="pictureBindingActions" style="margin-top:10px">
-      <button id="bindPicture" class="primary" style="width:100%" disabled>Apply picture</button>
+    <div id="pictureBindingActions" class="row" style="margin-top:10px">
+      <button id="bindPicture" class="primary" disabled>Apply picture</button>
+      <button id="clearBindPicture" disabled>Remove picture</button>
     </div>
     <div id="annotationControls" hidden>
       <label for="annotationRemark" style="margin-top:10px">Remark (required)</label>
@@ -114,9 +123,11 @@
       </div>
     </div>
     <div id="repeaterControls" hidden>
-      <label for="repeaterPath" style="margin-top:10px">Repeater container: XPath (node-set)</label>
+      <div class="field-heading" style="margin-top:10px">
+        <label for="repeaterPath">Repeater container: XPath (node-set)</label>
+        <button id="pickRepeaterNodes" class="icon-btn" disabled><span aria-hidden="true">🎯</span> Select nodes</button>
+      </div>
       <textarea id="repeaterPath" spellcheck="false"></textarea>
-      <button id="pickRepeaterNodes" style="margin-top:6px" disabled>Select nodes</button>
       <div id="repeaterFields" class="muted"></div>
       <div class="row" style="margin-top:8px">
         <button id="applyRepeater" class="primary" disabled>Apply</button>
@@ -239,6 +250,8 @@
     const isPicture = selection?.type === "rectangle";
     const isOtherNonText = !!selection && !isText && !isBoard && !isPicture;
     const isClone = (isText || isPicture) && selection.isRepeaterClone;
+    const typeLabel = isText ? "Text" : isPicture ? "Picture" : isBoard ? "Board" : isOtherNonText ? "Layer" : "";
+    $("inspectorTitle").textContent = typeLabel ? `XPath Inspector \u2014 ${typeLabel}` : "XPath Inspector";
     $("targetName").textContent = selection ? selection.name : "No single layer selected.";
     $("targetName").title = selection?.id || "";
     $("targetName").hidden = !isOtherNonText;
@@ -248,8 +261,10 @@
     $("xpathSection").hidden = isBoard || !selection;
     $("textBindingActions").style.display = isText ? "block" : "none";
     $("pictureBindingActions").style.display = isPicture ? "block" : "none";
+    $("clearBind").disabled = !(isText && selection.sourceId && selection.path);
+    $("clearBindPicture").disabled = !(isPicture && selection.sourceId && selection.path);
     $("annotationControls").hidden = !isOtherNonText;
-    $("annotationList").hidden = !isOtherNonText;
+    $("annotationList").hidden = !isOtherNonText && !isText && !isPicture;
     $("repeaterControls").hidden = !isBoard;
     $("repeaterContextNote").hidden = !((isText || isPicture) && !isClone && effectiveAncestorRepeater());
     $("repeaterCloneNote").hidden = !isClone;
@@ -317,7 +332,7 @@
   function renderAnnotations() {
     $("annotationList").replaceChildren();
     if (!selection) return;
-    if (selection.type === "text") {
+    if (selection.type === "text" || selection.type === "rectangle") {
       if (!selection.sourceId || !selection.path) return;
       const item = document.createElement("div");
       item.className = "annotation-entry";
@@ -818,6 +833,10 @@
       setStatus(err.message || String(err), "error");
     }
   };
+  $("clearBind").onclick = () => {
+    if (!selection?.sourceId || !selection?.path) return;
+    send({ type: "unbind", targetId: selection?.id });
+  };
   $("bindPicture").onclick = () => {
     if (!source) return setStatus("Choose an XML source first.", "error");
     if (selection?.type !== "rectangle" || selection.isRepeaterClone) return;
@@ -828,6 +847,10 @@
     } catch (err) {
       setStatus(err.message || String(err), "error");
     }
+  };
+  $("clearBindPicture").onclick = () => {
+    if (!selection?.sourceId || !selection?.path) return;
+    send({ type: "unbind", targetId: selection?.id });
   };
   $("refresh").onclick = () => {
     setStatus("Refreshing…", "muted");
